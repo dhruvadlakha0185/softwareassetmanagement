@@ -5,9 +5,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # ── Database ──────────────────────────────────────────────────────────────
-    # Local  (Supabase CLI):  postgresql+asyncpg://postgres:postgres@localhost:54322/postgres
+    # Local  (Supabase CLI):  postgresql+asyncpg://postgres:postgres@localhost:54322/drl_sam
     # Prod   (PostgreSQL):    postgresql+asyncpg://user:pass@db:5432/drl_sam
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:54322/postgres"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:54322/drl_sam"
 
     # ── Auth ──────────────────────────────────────────────────────────────────
     jwt_secret: str = "local-dev-secret-change-in-prod"
