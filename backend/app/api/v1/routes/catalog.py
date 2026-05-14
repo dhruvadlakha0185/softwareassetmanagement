@@ -29,9 +29,23 @@ async def _load_out(sw: SoftwareCatalog, db: AsyncSession) -> SoftwareCatalogOut
         select(SoftwareAlias).where(SoftwareAlias.sw_id == sw.sw_id)
     )
     aliases = [SoftwareAliasOut.model_validate(a) for a in aliases_result.scalars().all()]
-    data = SoftwareCatalogOut.model_validate(sw)
-    data.aliases = aliases
-    return data
+    # Build manually to avoid triggering the lazy-loaded ORM relationship
+    return SoftwareCatalogOut(
+        sw_id=sw.sw_id,
+        canonical_name=sw.canonical_name,
+        publisher=sw.publisher,
+        category_id=sw.category_id,
+        sub_category_id=sw.sub_category_id,
+        gxp_flag=sw.gxp_flag,
+        vendor_id=sw.vendor_id,
+        vendor_risk=sw.vendor_risk,
+        deployment=sw.deployment,
+        region_id=sw.region_id,
+        app_owner_id=sw.app_owner_id,
+        notes=sw.notes,
+        onboarded_date=sw.onboarded_date,
+        aliases=aliases,
+    )
 
 
 @router.get("", response_model=list[SoftwareCatalogOut])

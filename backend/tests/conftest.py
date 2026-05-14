@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
@@ -7,7 +8,14 @@ import app.models  # noqa: F401 — registers all models so create_all sees them
 from app.core.security import get_password_hash
 from app.models.users import User
 
-TEST_DB_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/drl_sam_test"
+TEST_DB_URL = "postgresql+asyncpg://postgres:postgres@localhost:54322/drl_sam_test"
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
 
 @pytest_asyncio.fixture(scope="session")
