@@ -325,6 +325,16 @@ export default function OnboardingPage() {
         {step === 2 && (
           <div>
             <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Step 3 — License Line Items</div>
+            {extracted && (!extracted.line_items || extracted.line_items.length === 0) && (
+              <div style={{ background: "#fffaf0", border: "1px solid var(--amber-m)", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "var(--amber)", marginBottom: 12 }}>
+                ⚠️ AI found no line items in the contract. Please add them manually below.
+              </div>
+            )}
+            {extracted && extracted.line_items?.length > 0 && (
+              <div style={{ background: "var(--navy-xlt)", border: "1px solid var(--bdr)", borderRadius: 6, padding: "6px 10px", fontSize: 11, color: "var(--navy-mid)", marginBottom: 12 }}>
+                AI extracted {extracted.line_items.length} line item{extracted.line_items.length !== 1 ? "s" : ""}. Review and edit as needed — all fields are editable.
+              </div>
+            )}
             {lines.map((line, idx) => (
               <div key={idx} style={{ background: "var(--bg2)", borderRadius: 6, padding: 10, marginBottom: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
