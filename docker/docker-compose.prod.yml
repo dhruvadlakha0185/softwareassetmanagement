@@ -1,0 +1,57 @@
+version: "3.9"
+
+# ── Production stack ──────────────────────────────────────────────────────────
+# Database  : AWS RDS PostgreSQL 16 (external — no db container)
+# Storage   : AWS S3 (external — no storage container)
+# Backend   : FastAPI on ECS Fargate (reference config shown here)
+# Frontend  : Nginx serving Vite build on ECS Fargate
+#
+# Environment variables must be injected via AWS SSM Parameter Store or
+# ECS task definition secrets — never hardcoded here.
+#
+# Build images:
+#   docker build -t drl-sam-backend ./backend
+#   docker build -t drl-sam-frontend ./frontend
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── FastAPI backend ─────────────────────────────────────────────────────────
+  backend:
+    image: ${ECR_REGISTRY}/drl-sam-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Database — AWS RDS PostgreSQL (set via SSM/ECS secrets in production)
+      DATABASE_URL: ${DATABASE_URL}
+        # format: postgresql+asyncpg://user:pass@rds-host:5432/drl_sam
+
+      # Auth
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+
+      # Storage — AWS S3
+      STORAGE_BACKEND: s3
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_S3_BUCKET_ACTIVE: ${AWS_S3_BUCKET_ACTIVE:-drl-sam-active}
+      AWS_S3_BUCKET_ARCHIVE: ${AWS_S3_BUCKET_ARCHIVE:-drl-sam-archive}
+
+      # AI
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+      # Auth provider (set to 'saml' to enable SSO in production)
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-jwt}
+
+  # ── Frontend (nginx) ────────────────────────────────────────────────────────
+  frontend:
+    image: ${ECR_REGISTRY}/drl-sam-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      VITE_API_URL: ${API_URL}
+        # format: https://api.sam.drl.com/api/v1
