@@ -17,6 +17,13 @@ async def trigger_reconciliation(
     db: AsyncSession = Depends(get_db),
 ):
     run = await run_reconciliation(db, triggered_by_id=current_user.id)
+    from app.services.audit_logger import log_event
+    await log_event(
+        db, current_user.id, "RECONCILIATION_RUN", "reconciliation_run", str(run.id),
+        after={"entitlements_processed": run.entitlements_processed},
+        is_gxp=False,
+    )
+    await db.commit()
     results_q = await db.execute(
         select(ReconciliationResult).where(ReconciliationResult.run_id == run.id)
     )

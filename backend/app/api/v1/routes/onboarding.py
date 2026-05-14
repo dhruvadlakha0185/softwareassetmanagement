@@ -208,5 +208,14 @@ async def publish_onboarding(
         db.add(ent)
         ent_ids.append(ent_id)
 
+    # Audit
+    from app.services.audit_logger import log_event
+    await log_event(
+        db, current_user.id, "SOFTWARE_ONBOARDED", "software_catalog", sw_id,
+        sw_id=sw_id,
+        after={"canonical_name": body.canonical_name, "contract_id": str(contract.id), "ent_ids": ent_ids},
+        is_gxp=(body.gxp_flag != "no"),
+    )
+
     await db.commit()
     return PublishOut(sw_id=sw_id, contract_id=contract.id, ent_ids=ent_ids)

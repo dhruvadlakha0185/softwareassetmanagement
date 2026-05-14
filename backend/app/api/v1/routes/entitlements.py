@@ -77,13 +77,29 @@ async def get_entitlement(ent_id: str, db: AsyncSession = Depends(get_db)):
     return EntitlementOut.model_validate(ent)
 
 
-@router.put("/{ent_id}", response_model=EntitlementOut, dependencies=[admin_only])
-async def update_entitlement(ent_id: str, body: EntitlementUpdate, db: AsyncSession = Depends(get_db)):
+@router.put("/{ent_id}", response_model=EntitlementOut)
+async def update_entitlement(
+    ent_id: str,
+    body: EntitlementUpdate,
+    current_user=Depends(require_role(["COE_ADMIN"])),
+    db: AsyncSession = Depends(get_db),
+):
     ent = await db.get(Entitlement, ent_id)
     if not ent:
         raise HTTPException(status_code=404, detail="Entitlement not found")
+    before = {k: str(getattr(ent, k)) for k in body.model_dump(exclude_none=True)}
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(ent, k, v)
+    from app.services.audit_logger import log_event
+    sw = await db.get(SoftwareCatalog, ent.sw_id)
+    is_gxp = (sw.gxp_flag != "no") if sw else False
+    await log_event(
+        db, current_user.id, "ENTITLEMENT_UPDATED", "entitlement", ent_id,
+        sw_id=ent.sw_id,
+        before=before,
+        after=body.model_dump(exclude_none=True, mode="json"),
+        is_gxp=is_gxp,
+    )
     await db.commit()
     await db.refresh(ent)
     return EntitlementOut.model_validate(ent)

@@ -29,7 +29,6 @@ async def _load_out(sw: SoftwareCatalog, db: AsyncSession) -> SoftwareCatalogOut
         select(SoftwareAlias).where(SoftwareAlias.sw_id == sw.sw_id)
     )
     aliases = [SoftwareAliasOut.model_validate(a) for a in aliases_result.scalars().all()]
-    # Build manually to avoid triggering the lazy-loaded ORM relationship
     return SoftwareCatalogOut(
         sw_id=sw.sw_id,
         canonical_name=sw.canonical_name,
@@ -86,9 +85,10 @@ async def get_catalog_entry(sw_id: str, db: AsyncSession = Depends(get_db)):
     return await _load_out(sw, db)
 
 
-@router.post("", response_model=SoftwareCatalogOut, status_code=201, dependencies=[admin_only])
+@router.post("", response_model=SoftwareCatalogOut, status_code=201)
 async def create_catalog_entry(
     body: SoftwareCatalogCreate,
+    current_user=Depends(require_role(["COE_ADMIN"])),
     db: AsyncSession = Depends(get_db),
 ):
     existing = (await db.execute(
@@ -103,22 +103,39 @@ async def create_catalog_entry(
         **{k: v for k, v in body.model_dump().items() if k != "onboarded_date"},
     )
     db.add(sw)
+    from app.services.audit_logger import log_event
+    await log_event(
+        db, current_user.id, "CATALOG_CREATED", "software_catalog", sw_id,
+        sw_id=sw_id,
+        after=body.model_dump(mode="json"),
+        is_gxp=(body.gxp_flag != "no"),
+    )
     await db.commit()
     await db.refresh(sw)
     return await _load_out(sw, db)
 
 
-@router.put("/{sw_id}", response_model=SoftwareCatalogOut, dependencies=[admin_only])
+@router.put("/{sw_id}", response_model=SoftwareCatalogOut)
 async def update_catalog_entry(
     sw_id: str,
     body: SoftwareCatalogUpdate,
+    current_user=Depends(require_role(["COE_ADMIN"])),
     db: AsyncSession = Depends(get_db),
 ):
     sw = await db.get(SoftwareCatalog, sw_id)
     if not sw:
         raise HTTPException(status_code=404, detail="Software entry not found")
+    before = {k: str(getattr(sw, k)) for k in body.model_dump(exclude_none=True)}
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(sw, k, v)
+    from app.services.audit_logger import log_event
+    await log_event(
+        db, current_user.id, "CATALOG_UPDATED", "software_catalog", sw_id,
+        sw_id=sw_id,
+        before=before,
+        after=body.model_dump(exclude_none=True, mode="json"),
+        is_gxp=(sw.gxp_flag != "no"),
+    )
     await db.commit()
     await db.refresh(sw)
     return await _load_out(sw, db)
