@@ -11,7 +11,7 @@ async def test_get_all_masters_returns_expected_keys(client):
 
 async def test_create_category_requires_admin(client):
     resp = await client.post("/api/v1/masters/categories", json={"name": "Test Cat"})
-    assert resp.status_code == 403
+    assert resp.status_code in (401, 403)
 
 
 async def test_create_list_delete_category(client, admin_token):

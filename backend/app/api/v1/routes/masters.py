@@ -55,8 +55,9 @@ async def create_category(body: CategoryCreate, db: AsyncSession = Depends(get_d
     cat = Category(**body.model_dump())
     db.add(cat)
     await db.commit()
-    await db.refresh(cat)
-    return CategoryOut.model_validate(cat)
+    # Reload with sub_categories eagerly to avoid lazy-load MissingGreenlet error
+    result = await db.execute(select(Category).options(selectinload(Category.sub_categories)).where(Category.id == cat.id))
+    return CategoryOut.model_validate(result.scalar_one())
 
 
 @router.put("/categories/{cat_id}", response_model=CategoryOut, dependencies=[admin_only])
@@ -67,8 +68,8 @@ async def update_category(cat_id: UUID, body: CategoryCreate, db: AsyncSession =
     for k, v in body.model_dump().items():
         setattr(cat, k, v)
     await db.commit()
-    await db.refresh(cat)
-    return CategoryOut.model_validate(cat)
+    result = await db.execute(select(Category).options(selectinload(Category.sub_categories)).where(Category.id == cat_id))
+    return CategoryOut.model_validate(result.scalar_one())
 
 
 @router.delete("/categories/{cat_id}", status_code=204, dependencies=[admin_only])

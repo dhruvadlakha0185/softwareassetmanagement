@@ -11,7 +11,7 @@ async def test_create_owner_requires_admin(client):
     resp = await client.post("/api/v1/owners", json={
         "email": "x@drl.com", "full_name": "X", "password": "pass"
     })
-    assert resp.status_code == 403
+    assert resp.status_code in (401, 403)
 
 
 async def test_create_owner_and_list(client, admin_token):

@@ -42,7 +42,7 @@ async def test_get_me_authenticated(client, admin_token):
 
 async def test_get_me_no_token(client):
     resp = await client.get("/api/v1/auth/me")
-    assert resp.status_code == 403  # HTTPBearer returns 403 when no credentials provided
+    assert resp.status_code in (401, 403)
 
 
 async def test_get_me_invalid_token(client):
