@@ -95,6 +95,22 @@ SEED_METHODS = [
     {"name": "Auto via CrowdStrike API",       "description": "CrowdStrike endpoint count pulled automatically",    "template_required": "none"},
 ]
 
+# ── Software Catalog ───────────────────────────────────────────────────────────
+SEED_CATALOG = [
+    {"sw_id": "SW-001", "canonical_name": "Microsoft 365",          "publisher": "Microsoft",      "gxp_flag": "no",        "vendor_risk": "MEDIUM", "deployment": "cloud"},
+    {"sw_id": "SW-002", "canonical_name": "SAP ERP (S/4HANA)",      "publisher": "SAP",            "gxp_flag": "yes_21cfr", "vendor_risk": "HIGH",   "deployment": "on_premise"},
+    {"sw_id": "SW-003", "canonical_name": "Oracle Database 19c",    "publisher": "Oracle",         "gxp_flag": "yes_21cfr", "vendor_risk": "HIGH",   "deployment": "on_premise"},
+    {"sw_id": "SW-004", "canonical_name": "LabWare LIMS",           "publisher": "LabWare",        "gxp_flag": "yes_21cfr", "vendor_risk": "LOW",    "deployment": "on_premise"},
+    {"sw_id": "SW-005", "canonical_name": "Veeva Vault QMS",        "publisher": "Veeva Systems",  "gxp_flag": "yes_both",  "vendor_risk": "LOW",    "deployment": "cloud"},
+    {"sw_id": "SW-006", "canonical_name": "Windows Server 2022",    "publisher": "Microsoft",      "gxp_flag": "no",        "vendor_risk": "MEDIUM", "deployment": "on_premise"},
+    {"sw_id": "SW-007", "canonical_name": "CrowdStrike Falcon EDR", "publisher": "CrowdStrike",    "gxp_flag": "no",        "vendor_risk": "LOW",    "deployment": "cloud"},
+    {"sw_id": "SW-008", "canonical_name": "ServiceNow ITSM",        "publisher": "ServiceNow",     "gxp_flag": "no",        "vendor_risk": "LOW",    "deployment": "cloud"},
+    {"sw_id": "SW-009", "canonical_name": "Broadcom VMware vSphere","publisher": "Broadcom",       "gxp_flag": "no",        "vendor_risk": "HIGH",   "deployment": "on_premise"},
+    {"sw_id": "SW-010", "canonical_name": "Adobe Acrobat DC",       "publisher": "Adobe",          "gxp_flag": "no",        "vendor_risk": "LOW",    "deployment": "desktop_cloud"},
+    {"sw_id": "SW-011", "canonical_name": "AVEVA PI System",        "publisher": "AVEVA",          "gxp_flag": "yes_annex11","vendor_risk": "LOW",   "deployment": "on_premise"},
+    {"sw_id": "SW-012", "canonical_name": "Koerber PAS-X MES",      "publisher": "Koerber Pharma", "gxp_flag": "yes_both",  "vendor_risk": "LOW",    "deployment": "on_premise"},
+]
+
 # ── Regions ────────────────────────────────────────────────────────────────────
 SEED_REGIONS = [
     {"name": "India",  "sites_json": "Mumbai R&D, Hyderabad Mfg, Hyderabad HQ",   "regulatory_zone": "CDSCO · Annex 11",       "data_residency": "India",               "aws_region": "ap-south-1"},
@@ -182,6 +198,18 @@ async def seed():
                     print(f"  create doa:{email}")
                 else:
                     print(f"  skip   doa:{email}")
+
+        # Software Catalog
+        from app.models.catalog import SoftwareCatalog
+        for item in SEED_CATALOG:
+            existing = (await session.execute(
+                select(SoftwareCatalog).where(SoftwareCatalog.sw_id == item["sw_id"])
+            )).scalar_one_or_none()
+            if existing:
+                print(f"  skip   catalog:{item['sw_id']}")
+            else:
+                session.add(SoftwareCatalog(**item))
+                print(f"  create catalog:{item['sw_id']} — {item['canonical_name']}")
 
         await session.commit()
     print("Seed complete.")
