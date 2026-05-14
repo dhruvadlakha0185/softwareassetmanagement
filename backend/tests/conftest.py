@@ -2,6 +2,7 @@ import asyncio
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from app.models.base import Base
 import app.models  # noqa: F401 — registers all models so create_all sees them
@@ -54,19 +55,29 @@ async def client(db):
 
 @pytest_asyncio.fixture
 async def admin_user(db):
-    user = User(
-        email="admin@drl.local",
-        full_name="COE Admin",
-        hashed_password=get_password_hash("Admin123!"),
-        role="COE_ADMIN",
-        is_active=True,
-    )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    yield user
-    await db.delete(user)
-    await db.commit()
+    # Reuse existing admin if present (avoids unique constraint on re-runs / FK teardown failures)
+    existing = (await db.execute(select(User).where(User.email == "admin@drl.local"))).scalar_one_or_none()
+    if existing:
+        existing.is_active = True
+        await db.commit()
+        yield existing
+        existing.is_active = False
+        await db.commit()
+    else:
+        user = User(
+            email="admin@drl.local",
+            full_name="COE Admin",
+            hashed_password=get_password_hash("Admin123!"),
+            role="COE_ADMIN",
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        yield user
+        # Soft-delete — hard delete fails when user is referenced by catalog/contract FKs
+        user.is_active = False
+        await db.commit()
 
 
 @pytest_asyncio.fixture
