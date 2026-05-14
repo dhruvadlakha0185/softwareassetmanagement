@@ -9,19 +9,38 @@ from app.api.v1.routes.onboarding import router as onboarding_router
 from app.api.v1.routes.entitlements import router as entitlements_router
 from app.api.v1.routes.discovery import router as discovery_router
 from app.api.v1.routes.reconciliation import router as reconciliation_router
+from app.api.v1.routes.alerts import router as alerts_router
 from app.core.config import settings
+
+
+async def _run_scheduled_alerts():
+    """Scheduled job: generate alerts for all entitlements."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.alert_generator import generate_alerts
+    async with AsyncSessionLocal() as db:
+        count = await generate_alerts(db)
+        print(f"[scheduler] Alert generator: {count} new alerts created")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Auto-seed test users in local dev
+    # Auto-seed on local dev
     if settings.storage_backend in ("supabase", "local"):
         try:
             from scripts.seed import seed
             await seed()
         except Exception as e:
             print(f"Seed skipped: {e}")
+
+    # Start APScheduler
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    scheduler = AsyncIOScheduler(timezone="UTC")
+    scheduler.add_job(_run_scheduled_alerts, "cron", hour=0, minute=0, id="daily_alerts")
+    scheduler.start()
+
     yield
+
+    scheduler.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -47,6 +66,7 @@ app.include_router(onboarding_router, prefix="/api/v1")
 app.include_router(entitlements_router, prefix="/api/v1")
 app.include_router(discovery_router, prefix="/api/v1")
 app.include_router(reconciliation_router, prefix="/api/v1")
+app.include_router(alerts_router, prefix="/api/v1")
 
 
 @app.get("/health")
