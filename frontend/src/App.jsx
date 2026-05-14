@@ -15,12 +15,24 @@ import AlertsPage from "./pages/Alerts/AlertsPage";
 import AppOwnersPage from "./pages/AppOwners/AppOwnersPage";
 import MastersPage from "./pages/Masters/MastersPage";
 import useAuthStore from "./store/authStore";
+import useAlertStore from "./store/alertStore";
 
 function AuthInit({ children }) {
   const { token, user, fetchMe } = useAuthStore();
+  const { fetchUnreadCount } = useAlertStore();
+
   useEffect(() => {
     if (token && !user) fetchMe();
   }, [token, user, fetchMe]);
+
+  // Poll alert count every 60 s while authenticated
+  useEffect(() => {
+    if (!token) return;
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 60_000);
+    return () => clearInterval(interval);
+  }, [token, fetchUnreadCount]);
+
   return children;
 }
 
