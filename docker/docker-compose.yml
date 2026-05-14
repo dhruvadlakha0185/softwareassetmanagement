@@ -1,75 +1,24 @@
 version: "3.9"
 
 # ── Local development stack ───────────────────────────────────────────────────
-# Database  : Supabase PostgreSQL 15 (supabase/postgres)
-# Storage   : Supabase Storage API (S3-compatible file storage)
-# Backend   : FastAPI with hot-reload via volume mount
-# Frontend  : Vite dev server with hot-reload via volume mount
+# Database & Storage : Supabase CLI  →  run `supabase start` BEFORE this file
+# Backend            : FastAPI with hot-reload via volume mount
+# Frontend           : Vite dev server with hot-reload via volume mount
 #
-# Start:  docker compose -f docker/docker-compose.yml up
-# Stop:   docker compose -f docker/docker-compose.yml down
-# Reset:  docker compose -f docker/docker-compose.yml down -v
+# One-time setup:
+#   npm install -g supabase          # or: brew install supabase/tap/supabase
+#   supabase init                    # creates supabase/config.toml (first time)
+#   supabase start                   # starts Postgres (54322) + Storage (54321) + Studio (54323)
+#   supabase status                  # shows SERVICE_ROLE_KEY — copy to .env
+#
+# Daily workflow:
+#   supabase start
+#   docker compose -f docker/docker-compose.yml up
+#
+# Stop:  docker compose down  &&  supabase stop
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Supabase local dev JWT tokens (standard demo values — safe for local only)
-x-supabase-jwt-secret: &supabase-jwt-secret
-  super-secret-jwt-token-with-at-least-32-characters-long
-
-x-supabase-anon-key: &supabase-anon-key
-  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7kyqd6M3k7VBBnFJeP5y-jQ1E9Y-5lhFu4c
-
-x-supabase-service-key: &supabase-service-key
-  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hj04zWl196z2-SBc0
-
 services:
-  # ── Supabase PostgreSQL ─────────────────────────────────────────────────────
-  db:
-    image: supabase/postgres:15.1.0.117
-    restart: unless-stopped
-    environment:
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: drl_sam           # app database
-      JWT_SECRET: *supabase-jwt-secret
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 15
-
-  # ── Supabase Storage API ────────────────────────────────────────────────────
-  storage:
-    image: supabase/storage-api:v0.46.4
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      ANON_KEY: *supabase-anon-key
-      SERVICE_KEY: *supabase-service-key
-      PGRST_JWT_SECRET: *supabase-jwt-secret
-      # Storage API uses the internal 'postgres' db for its own schema
-      DATABASE_URL: postgresql://supabase_storage_admin:postgres@db:5432/postgres
-      FILE_SIZE_LIMIT: "26214400"       # 25 MB
-      STORAGE_BACKEND: file
-      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
-      TENANT_ID: stub
-      REGION: local
-      GLOBAL_S3_BUCKET: stub
-      ENABLE_IMAGE_TRANSFORMATION: "false"
-    ports:
-      - "5000:5000"
-    volumes:
-      - storage_data:/var/lib/storage
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/status || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
   # ── FastAPI backend ─────────────────────────────────────────────────────────
   backend:
     build:
@@ -78,23 +27,25 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-      storage:
-        condition: service_healthy
+    extra_hosts:
+      # Allows the container to reach Supabase services on the host machine.
+      # Works on macOS, Windows, and Linux (Docker Engine >= 20.10).
+      - "host.docker.internal:host-gateway"
     environment:
-      # Database — Supabase PostgreSQL, drl_sam schema
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/drl_sam
+      # Supabase local Postgres (port 54322 is the direct DB port from `supabase start`)
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@host.docker.internal:54322/postgres
+
       # Auth
       JWT_SECRET: local-dev-secret-change-in-prod
       JWT_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 60
       REFRESH_TOKEN_EXPIRE_DAYS: 7
-      # Storage — Supabase Storage API
+
+      # Supabase Storage — accessed through Kong API gateway (port 54321)
       STORAGE_BACKEND: supabase
-      SUPABASE_STORAGE_URL: http://storage:5000
-      SUPABASE_SERVICE_KEY: *supabase-service-key
+      SUPABASE_URL: http://host.docker.internal:54321
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+
       # AI
       OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy}
     volumes:
@@ -117,7 +68,3 @@ services:
       - ../frontend:/app
       - /app/node_modules
     command: npm run dev -- --host 0.0.0.0
-
-volumes:
-  postgres_data:
-  storage_data:

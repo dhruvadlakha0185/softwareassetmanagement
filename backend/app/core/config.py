@@ -5,9 +5,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # ── Database ──────────────────────────────────────────────────────────────
-    # Local:  postgresql+asyncpg://postgres:postgres@localhost:5432/drl_sam (Supabase)
-    # Prod:   postgresql+asyncpg://user:pass@rds-host:5432/drl_sam (RDS)
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/drl_sam"
+    # Local  (Supabase CLI):  postgresql+asyncpg://postgres:postgres@localhost:54322/postgres
+    # Prod   (PostgreSQL):    postgresql+asyncpg://user:pass@db:5432/drl_sam
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:54322/postgres"
 
     # ── Auth ──────────────────────────────────────────────────────────────────
     jwt_secret: str = "local-dev-secret-change-in-prod"
@@ -22,8 +22,10 @@ class Settings(BaseSettings):
     #   "s3"       — production via AWS S3
     storage_backend: str = "supabase"
 
-    # Supabase Storage (local dev)
-    supabase_storage_url: str = "http://localhost:5000"
+    # Supabase (local dev) — single API gateway URL from `supabase start`
+    # Storage endpoint: {supabase_url}/storage/v1
+    # Get the service key from: supabase status
+    supabase_url: str = "http://localhost:54321"
     supabase_service_key: str = ""
 
     # AWS S3 (production)
