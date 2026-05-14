@@ -1,5 +1,5 @@
 import io
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
@@ -139,7 +139,7 @@ async def upload_usage(
 
     # Upload file to storage (best-effort — don't fail the whole request if storage is down)
     storage = get_storage_backend()
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
     storage_path = f"uploads/{current_user.id}/{ts}_{file.filename}"
     try:
         await storage.upload(
@@ -158,7 +158,7 @@ async def upload_usage(
         storage_backend="supabase",
         reporting_period=reporting_period,
         reason=reason,
-        processed_at=datetime.now(timezone.utc),
+        processed_at=datetime.utcnow(),
         status="completed" if not errors else "failed",
         error_details="\n".join(errors) if errors else None,
     )
