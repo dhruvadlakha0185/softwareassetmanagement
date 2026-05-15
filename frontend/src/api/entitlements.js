@@ -14,6 +14,9 @@ export const updateEntitlement = (entId, data) =>
 export const downloadTemplate = () =>
   client.get(`${base}/template`, { responseType: "blob" }).then(r => r.data);
 
+export const renewEntitlement = (entId, data) =>
+  client.post(`${base}/${entId}/renew`, data).then(r => r.data);
+
 export const uploadUsage = (file, params = {}) => {
   const form = new FormData();
   form.append("file", file);

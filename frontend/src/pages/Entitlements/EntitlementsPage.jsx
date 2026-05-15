@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchEntitlements, updateEntitlement, downloadTemplate, uploadUsage } from "../../api/entitlements";
+import { fetchEntitlements, updateEntitlement, downloadTemplate, uploadUsage, renewEntitlement } from "../../api/entitlements";
 
 // ── Badges ────────────────────────────────────────────────────────────────────
 const STATUS_STYLE = {
@@ -71,13 +71,141 @@ function Avatar({ initials, name }) {
   );
 }
 
+// ── Renew Modal ───────────────────────────────────────────────────────────────
+function RenewModal({ ent, onClose, onRenewed }) {
+  const blank = { contract_name: "", po_number: "", clm_id: "", start_date: "", end_date: "",
+    entitled_count: ent.entitled_count ?? "", unit_cost_inr: ent.unit_cost_inr ?? "",
+    annual_cost_inr: ent.annual_cost_inr ?? "", notes: "" };
+  const [form, setForm] = useState(blank);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async () => {
+    if (!form.contract_name.trim()) { setError("Contract Name is required."); return; }
+    setSubmitting(true); setError(null);
+    try {
+      const payload = {
+        contract_name: form.contract_name.trim(),
+        po_number: form.po_number || null,
+        clm_id: form.clm_id || null,
+        start_date: form.start_date || null,
+        end_date: form.end_date || null,
+        entitled_count: form.entitled_count ? parseInt(form.entitled_count) : null,
+        unit_cost_inr: form.unit_cost_inr ? parseInt(form.unit_cost_inr) : null,
+        annual_cost_inr: form.annual_cost_inr ? parseInt(form.annual_cost_inr) : null,
+        notes: form.notes || null,
+      };
+      const res = await renewEntitlement(ent.ent_id, payload);
+      setResult(res);
+      onRenewed();
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Renewal failed. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100,
+      display: "flex", alignItems: "center", justifyContent: "center" }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: "var(--card)", borderRadius: 10, width: 520, maxHeight: "90vh",
+        overflow: "auto", padding: 24, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Renew Contract</div>
+            <div style={{ fontSize: 12, color: "var(--tx-q)", marginTop: 2 }}>
+              {ent.canonical_name} · retiring <code style={{ fontSize: 11 }}>{ent.ent_id}</code>
+            </div>
+          </div>
+          <button className="btn btn-o btn-sm" onClick={onClose}>✕</button>
+        </div>
+
+        {result ? (
+          <div style={{ background: "var(--navy-xlt)", border: "1px solid var(--bdr)", borderRadius: 6, padding: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 8, color: "var(--green-m)" }}>Renewal successful</div>
+            <div style={{ fontSize: 13, lineHeight: 1.9 }}>
+              <div>New SW ID: <code>{result.new_sw_id}</code></div>
+              <div>New ENT ID: <code>{result.new_ent_id}</code></div>
+              <div>Retired: <code>{result.retired_ent_id}</code> → EXPIRED</div>
+            </div>
+            <button className="btn btn-p btn-sm" style={{ marginTop: 14 }} onClick={onClose}>Done</button>
+          </div>
+        ) : (
+          <>
+            {error && <div style={{ background: "#fff0f0", border: "1px solid var(--red-m)", borderRadius: 6,
+              padding: "8px 12px", fontSize: 12, color: "var(--red-m)", marginBottom: 12 }}>{error}</div>}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label className="fl" style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, display: "block" }}>CONTRACT NAME *</label>
+                <input className="fi2" style={{ width: "100%" }} placeholder="e.g. SAP S/4HANA Renewal FY26"
+                  value={form.contract_name} onChange={e => set("contract_name", e.target.value)} />
+              </div>
+              <div>
+                <label className="fl" style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, display: "block" }}>PO NUMBER</label>
+                <input className="fi2" style={{ width: "100%" }} value={form.po_number} onChange={e => set("po_number", e.target.value)} />
+              </div>
+              <div>
+                <label className="fl" style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, display: "block" }}>CLM ID</label>
+                <input className="fi2" style={{ width: "100%" }} value={form.clm_id} onChange={e => set("clm_id", e.target.value)} />
+              </div>
+              <div>
+                <label className="fl" style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, display: "block" }}>START DATE</label>
+                <input className="fi2" style={{ width: "100%" }} type="date" value={form.start_date} onChange={e => set("start_date", e.target.value)} />
+              </div>
+              <div>
+                <label className="fl" style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, display: "block" }}>EXPIRY DATE</label>
+                <input className="fi2" style={{ width: "100%" }} type="date" value={form.end_date} onChange={e => set("end_date", e.target.value)} />
+              </div>
+              <div>
+                <label className="fl" style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, display: "block" }}>ENTITLED COUNT</label>
+                <input className="fi2" style={{ width: "100%" }} type="number" min="0" value={form.entitled_count} onChange={e => set("entitled_count", e.target.value)} />
+              </div>
+              <div>
+                <label className="fl" style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, display: "block" }}>UNIT COST (INR)</label>
+                <input className="fi2" style={{ width: "100%" }} type="number" min="0" value={form.unit_cost_inr} onChange={e => set("unit_cost_inr", e.target.value)} />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label className="fl" style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, display: "block" }}>ANNUAL COST (INR)</label>
+                <input className="fi2" style={{ width: "100%" }} type="number" min="0" value={form.annual_cost_inr} onChange={e => set("annual_cost_inr", e.target.value)} />
+              </div>
+            </div>
+
+            <div style={{ background: "var(--amber-l)", border: "1px solid var(--amber-m)", borderRadius: 6,
+              padding: "8px 12px", fontSize: 11.5, color: "var(--amber-m)", marginBottom: 16 }}>
+              This will create a new SW_ID and ENT_ID. The current record
+              (<code style={{ fontSize: 11 }}>{ent.ent_id}</code>) will be marked <strong>EXPIRED</strong> and
+              preserved in the register for history.
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button className="btn btn-o btn-sm" onClick={onClose}>Cancel</button>
+              <button className="btn btn-p btn-sm" style={{ background: "var(--navy-mid)" }}
+                onClick={handleSubmit} disabled={submitting}>
+                {submitting ? "Renewing…" : "Confirm Renewal"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Detail Drawer ─────────────────────────────────────────────────────────────
 function DetailDrawer({ ent, onClose, onSave }) {
   const [editInUse, setEditInUse] = useState(String(ent.in_use_count ?? ""));
   const [saving, setSaving] = useState(false);
+  const [showRenew, setShowRenew] = useState(false);
 
   useEffect(() => {
     setEditInUse(String(ent.in_use_count ?? ""));
+    setShowRenew(false);
   }, [ent.ent_id]);
 
   const handleSave = async () => {
@@ -91,6 +219,10 @@ function DetailDrawer({ ent, onClose, onSave }) {
   };
 
   return (
+    <>
+    {showRenew && (
+      <RenewModal ent={ent} onClose={() => setShowRenew(false)} onRenewed={() => { setShowRenew(false); onSave(); onClose(); }} />
+    )}
     <div style={{
       width: 440, flexShrink: 0, borderLeft: "1px solid var(--bdr)",
       background: "var(--card)", display: "flex", flexDirection: "column", overflow: "hidden",
@@ -102,7 +234,13 @@ function DetailDrawer({ ent, onClose, onSave }) {
           <div style={{ fontSize: 15, fontWeight: 600 }}>{ent.contract_name || ent.ent_id}</div>
           <div style={{ fontSize: 11, color: "var(--tx-q)", marginTop: 2 }}>{ent.sw_id} · {ent.ent_id}</div>
         </div>
-        <button className="btn btn-o btn-sm" onClick={onClose}>✕ Close</button>
+        <div style={{ display: "flex", gap: 6 }}>
+          {ent.status !== "EXPIRED" && (
+            <button className="btn btn-o btn-sm" style={{ color: "var(--teal-m)", borderColor: "var(--teal-m)" }}
+              onClick={() => setShowRenew(true)}>↻ Renew</button>
+          )}
+          <button className="btn btn-o btn-sm" onClick={onClose}>✕ Close</button>
+        </div>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px" }}>
@@ -172,6 +310,7 @@ function DetailDrawer({ ent, onClose, onSave }) {
         </div>
       </div>
     </div>
+    </>
   );
 }
 

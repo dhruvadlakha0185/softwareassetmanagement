@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import datetime, date
 from uuid import UUID
+from typing import Literal
 from pydantic import BaseModel
 
 
@@ -39,6 +40,7 @@ class EntitlementOut(BaseModel):
     # Status & audit
     region_id: UUID | None = None
     status: str
+    renewal_of: str | None = None     # ent_id this record supersedes
     last_updated: datetime | None = None
     model_config = {"from_attributes": True}
 
@@ -54,6 +56,26 @@ class EntitlementUpdate(BaseModel):
     region_id: UUID | None = None
     app_owner_id: UUID | None = None
     status: str | None = None
+
+
+class RenewEntitlementRequest(BaseModel):
+    contract_name: str
+    po_number: str | None = None
+    clm_id: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    total_value_inr: int | None = None
+    auto_renewal_clause: Literal["yes", "no", "opt_in"] | None = None
+    entitled_count: int | None = None
+    unit_cost_inr: int | None = None
+    annual_cost_inr: int | None = None
+    notes: str | None = None
+
+
+class RenewEntitlementOut(BaseModel):
+    new_ent_id: str
+    new_sw_id: str
+    retired_ent_id: str
 
 
 class UploadResultOut(BaseModel):

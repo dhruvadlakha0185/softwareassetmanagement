@@ -58,6 +58,7 @@ class Entitlement(Base):
         nullable=False,
         default="ACTIVE",
     )
+    renewal_of = Column(String(20), ForeignKey("entitlements.ent_id"), nullable=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

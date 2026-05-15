@@ -11,7 +11,7 @@ from app.models.contracts import Entitlement
 from app.models.catalog import SoftwareCatalog
 from app.models.masters import LicenseMetric
 from app.models.uploads import UsageUpload
-from app.schemas.entitlements import EntitlementOut, EntitlementUpdate, UploadResultOut
+from app.schemas.entitlements import EntitlementOut, EntitlementUpdate, UploadResultOut, RenewEntitlementRequest, RenewEntitlementOut
 from app.services.uploads.xlsx_processor import generate_template, parse_tab_a, parse_tab_b, file_hash, xls_to_xlsx
 from app.services.storage.factory import get_storage_backend
 
@@ -138,6 +138,117 @@ async def download_template():
         io.BytesIO(xlsx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename=entitlements_template_{today}.xlsx"},
+    )
+
+
+@router.post("/{ent_id}/renew", response_model=RenewEntitlementOut, status_code=201)
+async def renew_entitlement(
+    ent_id: str,
+    body: RenewEntitlementRequest,
+    current_user=Depends(require_role(["COE_ADMIN"])),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Renew a contract cycle:
+      1. Create a new SW_ID (copy of existing SW catalog entry, new onboarded_date)
+      2. Create a new Contract record
+      3. Create a new Entitlement (new ENT_ID, new SW_ID, renewal_of = old ent_id)
+      4. Mark old entitlement EXPIRED
+    History is preserved — old ENT_ID stays in the register with EXPIRED status.
+    """
+    from sqlalchemy import func
+    from app.models.contracts import Contract
+
+    old_ent = await db.get(Entitlement, ent_id)
+    if not old_ent:
+        raise HTTPException(status_code=404, detail="Entitlement not found")
+
+    old_sw = await db.get(SoftwareCatalog, old_ent.sw_id)
+    if not old_sw:
+        raise HTTPException(status_code=404, detail="Software catalog entry not found")
+
+    # ── 1. New SW_ID ──────────────────────────────────────────────────────────
+    max_sw = (await db.execute(
+        select(func.max(SoftwareCatalog.sw_id)).where(SoftwareCatalog.sw_id.like("SW-%"))
+    )).scalar_one_or_none()
+    new_sw_n = int(max_sw.split("-")[1]) + 1 if max_sw else 1
+    new_sw_id = f"SW-{new_sw_n:03d}"
+
+    new_sw = SoftwareCatalog(
+        sw_id=new_sw_id,
+        canonical_name=old_sw.canonical_name,
+        publisher=old_sw.publisher,
+        category_id=old_sw.category_id,
+        sub_category_id=old_sw.sub_category_id,
+        gxp_flag=old_sw.gxp_flag,
+        vendor_id=old_sw.vendor_id,
+        vendor_risk=old_sw.vendor_risk,
+        deployment=old_sw.deployment,
+        region_id=old_sw.region_id,
+        app_owner_id=old_sw.app_owner_id,
+        notes=old_sw.notes,
+        onboarded_date=date.today(),
+    )
+    db.add(new_sw)
+
+    # ── 2. New Contract ───────────────────────────────────────────────────────
+    new_contract = Contract(
+        sw_id=new_sw_id,
+        po_number=body.po_number,
+        clm_id=body.clm_id,
+        start_date=body.start_date,
+        end_date=body.end_date,
+        total_value_inr=body.total_value_inr,
+        auto_renewal_clause=body.auto_renewal_clause,
+        created_by=current_user.id,
+    )
+    db.add(new_contract)
+    await db.flush()  # needed to get new_contract.id
+
+    # ── 3. New ENT_ID ─────────────────────────────────────────────────────────
+    max_ent = (await db.execute(
+        select(func.max(Entitlement.ent_id)).where(Entitlement.ent_id.like("ENT-%"))
+    )).scalar_one_or_none()
+    new_ent_n = int(max_ent.split("-")[1]) + 1 if max_ent else 1
+    new_ent_id = f"ENT-{new_ent_n:03d}"
+
+    new_ent = Entitlement(
+        ent_id=new_ent_id,
+        sw_id=new_sw_id,
+        contract_id=new_contract.id,
+        contract_name=body.contract_name,
+        metric_id=old_ent.metric_id,
+        license_type=old_ent.license_type,
+        entitled_count=body.entitled_count if body.entitled_count is not None else old_ent.entitled_count,
+        in_use_count=0,
+        unit_cost_inr=body.unit_cost_inr,
+        annual_cost_inr=body.annual_cost_inr,
+        region_id=old_ent.region_id,
+        discovery_source_id=old_ent.discovery_source_id,
+        usage_method_id=old_ent.usage_method_id,
+        app_owner_id=old_ent.app_owner_id,
+        status="ACTIVE",
+        renewal_of=ent_id,
+    )
+    db.add(new_ent)
+
+    # ── 4. Retire old entitlement ─────────────────────────────────────────────
+    old_ent.status = "EXPIRED"
+
+    from app.services.audit_logger import log_event
+    await log_event(
+        db, current_user.id, "ENTITLEMENT_RENEWED", "entitlement", new_ent_id,
+        sw_id=new_sw_id,
+        before={"ent_id": ent_id, "sw_id": old_ent.sw_id},
+        after={"new_ent_id": new_ent_id, "new_sw_id": new_sw_id, "contract_name": body.contract_name},
+        is_gxp=(old_sw.gxp_flag != "no"),
+    )
+
+    await db.commit()
+    return RenewEntitlementOut(
+        new_ent_id=new_ent_id,
+        new_sw_id=new_sw_id,
+        retired_ent_id=ent_id,
     )
 
 
