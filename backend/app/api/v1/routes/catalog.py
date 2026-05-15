@@ -78,6 +78,30 @@ async def list_catalog_brief(db: AsyncSession = Depends(get_db)):
     return [SoftwareCatalogBrief.model_validate(sw) for sw in result.scalars().all()]
 
 
+# /rows MUST be registered before /{sw_id} so FastAPI doesn't match the
+# literal string "rows" as a sw_id path parameter.
+@router.get("/rows", response_model=list[SoftwareCatalogRow])
+async def list_catalog_rows(
+    search: str | None = Query(None),
+    category_id: UUID | None = Query(None),
+    gxp_flag: str | None = Query(None),
+    vendor_risk: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    q = select(SoftwareCatalog)
+    if search:
+        q = q.where(SoftwareCatalog.canonical_name.ilike(f"%{search}%"))
+    if category_id:
+        q = q.where(SoftwareCatalog.category_id == category_id)
+    if gxp_flag:
+        q = q.where(SoftwareCatalog.gxp_flag == gxp_flag)
+    if vendor_risk:
+        q = q.where(SoftwareCatalog.vendor_risk == vendor_risk)
+    result = await db.execute(q.order_by(SoftwareCatalog.sw_id))
+    rows = result.scalars().all()
+    return [await _enrich_row(sw, db) for sw in rows]
+
+
 @router.get("/{sw_id}", response_model=SoftwareCatalogOut)
 async def get_catalog_entry(sw_id: str, db: AsyncSession = Depends(get_db)):
     sw = await db.get(SoftwareCatalog, sw_id)
@@ -225,30 +249,6 @@ async def _enrich_row(sw: SoftwareCatalog, db: AsyncSession) -> SoftwareCatalogR
         notes=sw.notes,
         aliases=aliases,
     )
-
-
-# ── New enriched list endpoint ────────────────────────────────────────────────
-
-@router.get("/rows", response_model=list[SoftwareCatalogRow])
-async def list_catalog_rows(
-    search: str | None = Query(None),
-    category_id: UUID | None = Query(None),
-    gxp_flag: str | None = Query(None),
-    vendor_risk: str | None = Query(None),
-    db: AsyncSession = Depends(get_db),
-):
-    q = select(SoftwareCatalog)
-    if search:
-        q = q.where(SoftwareCatalog.canonical_name.ilike(f"%{search}%"))
-    if category_id:
-        q = q.where(SoftwareCatalog.category_id == category_id)
-    if gxp_flag:
-        q = q.where(SoftwareCatalog.gxp_flag == gxp_flag)
-    if vendor_risk:
-        q = q.where(SoftwareCatalog.vendor_risk == vendor_risk)
-    result = await db.execute(q.order_by(SoftwareCatalog.sw_id))
-    rows = result.scalars().all()
-    return [await _enrich_row(sw, db) for sw in rows]
 
 
 # ── Detail panel endpoint ─────────────────────────────────────────────────────
