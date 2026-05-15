@@ -13,6 +13,7 @@ from app.api.v1.routes.alerts import router as alerts_router
 from app.api.v1.routes.audit import router as audit_router
 from app.api.v1.routes.cost_opt import router as cost_opt_router
 from app.api.v1.routes.dashboard import router as dashboard_router
+from app.api.v1.routes.admin import router as admin_router
 from app.core.config import settings
 
 
@@ -68,6 +69,7 @@ app.include_router(alerts_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
 app.include_router(cost_opt_router, prefix="/api/v1")
 app.include_router(dashboard_router, prefix="/api/v1")
+app.include_router(admin_router, prefix="/api/v1")
 
 
 @app.get("/health")
