@@ -30,12 +30,12 @@ const AI_STYLE = {
   WATCH:          { bg: null,             color: "var(--tx-q)",    label: "No action required at this stage" },
 };
 
-function AICell({ status, text, expanded, onToggle }) {
+function AICell({ status, text }) {
   const s = AI_STYLE[status];
-  const showText = s?.label || text;
   const isHighlighted = status === "OVER_DEPLOYED" || status === "UNDER_UTILISED";
+  const displayText = text || s?.label;
 
-  if (!showText) return <span style={{ color: "var(--tx-q)", fontSize: 11 }}>—</span>;
+  if (!displayText) return <span style={{ color: "var(--tx-q)", fontSize: 11 }}>—</span>;
 
   if (!isHighlighted) {
     return (
@@ -46,20 +46,11 @@ function AICell({ status, text, expanded, onToggle }) {
   }
 
   return (
-    <div
-      style={{
-        background: s.bg, borderRadius: 4, padding: "4px 8px",
-        fontSize: 11, color: s.color, cursor: text ? "pointer" : "default",
-        overflow: "hidden",
-        display: "-webkit-box",
-        WebkitLineClamp: expanded ? "unset" : 2,
-        WebkitBoxOrient: "vertical",
-        maxWidth: 300,
-      }}
-      onClick={text ? onToggle : undefined}
-      title={text ? "Click to expand" : undefined}
-    >
-      {text || s.label}
+    <div style={{
+      background: s.bg, borderRadius: 4, padding: "5px 8px",
+      fontSize: 11, color: s.color, lineHeight: 1.6,
+    }}>
+      {displayText}
     </div>
   );
 }
@@ -70,7 +61,6 @@ export default function ReconciliationPage() {
   const [runs, setRuns] = useState([]);
   const [running, setRunning] = useState(false);
   const [loadingLatest, setLoadingLatest] = useState(true);
-  const [expandedId, setExpandedId] = useState(null);
 
   const loadLatest = async () => {
     setLoadingLatest(true);
@@ -102,7 +92,10 @@ export default function ReconciliationPage() {
     }
   };
 
-  const results = latestRun?.results || [];
+  const STATUS_ORDER = { OVER_DEPLOYED: 0, UNDER_UTILISED: 1, WATCH: 2, OK: 3, ACTIVE: 4, EXPIRED: 5 };
+  const results = [...(latestRun?.results || [])].sort(
+    (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9)
+  );
 
   const COLS = [
     { key: "ent_id",         label: "ENT ID",         w: 90  },
@@ -263,12 +256,7 @@ export default function ReconciliationPage() {
 
                     {/* AI Recommendation */}
                     <td style={{ padding: "9px 12px" }}>
-                      <AICell
-                        status={r.status}
-                        text={r.ai_recommendation}
-                        expanded={expandedId === r.id}
-                        onToggle={() => setExpandedId(expandedId === r.id ? null : r.id)}
-                      />
+                      <AICell status={r.status} text={r.ai_recommendation} />
                     </td>
                   </tr>
                 );
