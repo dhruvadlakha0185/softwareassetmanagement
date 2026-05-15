@@ -133,10 +133,12 @@ async def get_summary(
             cat_name = cat.name if cat else "Uncategorised"
         category_spend[cat_name] = category_spend.get(cat_name, 0) + (ent.annual_cost_inr or 0)
 
-    spend_by_category = sorted(
-        [SpendByCategory(category_name=k, total_inr=v) for k, v in category_spend.items()],
+    # Sort named categories first (descending by spend), then Uncategorised last
+    named = sorted(
+        [SpendByCategory(category_name=k, total_inr=v) for k, v in category_spend.items() if k != "Uncategorised"],
         key=lambda x: x.total_inr, reverse=True,
     )[:6]
+    spend_by_category = named  # Uncategorised excluded — SW without category don't distort chart
 
     # ── Alerts (unread) ───────────────────────────────────────────────────────
     read_result = await db.execute(
@@ -152,10 +154,17 @@ async def get_summary(
         select(func.count()).select_from(DiscoveryRecord).where(DiscoveryRecord.sw_id.is_not(None))
     )).scalar_one()
 
+    # ── Potential savings = Σ unit_cost × (entitled - in_use) for UNDER_UTILISED
+    potential_savings = sum(
+        (e.unit_cost_inr or 0) * max(0, (e.entitled_count or 0) - (e.in_use_count or 0))
+        for e in ents if e.status == "UNDER_UTILISED"
+    )
+
     return DashboardSummaryOut(
         total_sw=total_sw,
         total_entitlements=total_entitlements,
         total_annual_cost_inr=total_annual_cost,
+        potential_savings_inr=potential_savings,
         over_deployed_count=over_deployed,
         watch_count=watch,
         under_utilised_count=under_utilised,

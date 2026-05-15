@@ -51,8 +51,10 @@ class DashboardSummaryOut(BaseModel):
     unread_alerts_count: int
     total_discovery_records: int
     matched_discovery_count: int
+    # Potential savings = Σ unit_cost × (entitled - in_use) for UNDER_UTILISED entitlements
+    potential_savings_inr: int
     # ── Rich panels ───────────────────────────────────────────────────────────
     top_utilisation: list[UtilisationItem]      # top 6 by util_pct desc
     expiring_contracts: list[ContractExpiring]  # next 5 by end_date
-    spend_by_category: list[SpendByCategory]    # top 6 categories by spend
+    spend_by_category: list[SpendByCategory]    # top 6 categories by spend (excludes Uncategorised)
     gxp_summary: GxPSummary
