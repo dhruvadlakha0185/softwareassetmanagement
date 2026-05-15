@@ -1,7 +1,7 @@
 import io
 from datetime import date, datetime
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -144,20 +144,33 @@ async def download_template():
 @router.post("/{ent_id}/renew", response_model=RenewEntitlementOut, status_code=201)
 async def renew_entitlement(
     ent_id: str,
-    body: RenewEntitlementRequest,
+    contract_name:        str           = Form(...),
+    po_number:            str | None    = Form(None),
+    clm_id:               str | None    = Form(None),
+    start_date:           str | None    = Form(None),   # ISO date string
+    end_date:             str | None    = Form(None),
+    total_value_inr:      int | None    = Form(None),
+    auto_renewal_clause:  str | None    = Form(None),
+    entitled_count:       int | None    = Form(None),
+    unit_cost_inr:        int | None    = Form(None),
+    annual_cost_inr:      int | None    = Form(None),
+    notes:                str | None    = Form(None),
+    contract_file:        UploadFile | None = File(None),
     current_user=Depends(require_role(["COE_ADMIN"])),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Renew a contract cycle:
-      1. Create a new SW_ID (copy of existing SW catalog entry, new onboarded_date)
-      2. Create a new Contract record
-      3. Create a new Entitlement (new ENT_ID, new SW_ID, renewal_of = old ent_id)
-      4. Mark old entitlement EXPIRED
+    Renew a contract cycle (multipart/form-data — supports optional PDF/DOCX upload):
+      1. Upload contract document to storage (if provided)
+      2. Create a new SW_ID (copy of existing catalog entry, today as onboarded_date)
+      3. Create a new Contract record (with file_path if uploaded)
+      4. Create a new Entitlement (new ENT_ID, new SW_ID, renewal_of = old ent_id)
+      5. Mark old entitlement EXPIRED
     History is preserved — old ENT_ID stays in the register with EXPIRED status.
     """
     from sqlalchemy import func
     from app.models.contracts import Contract
+    from datetime import date as date_type
 
     old_ent = await db.get(Entitlement, ent_id)
     if not old_ent:
@@ -166,6 +179,31 @@ async def renew_entitlement(
     old_sw = await db.get(SoftwareCatalog, old_ent.sw_id)
     if not old_sw:
         raise HTTPException(status_code=404, detail="Software catalog entry not found")
+
+    # ── 0. Upload contract document (optional) ───────────────────────────────
+    file_path_stored: str | None = None
+    file_name_stored: str | None = None
+    if contract_file and contract_file.filename:
+        file_data = await contract_file.read()
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+        storage_key = f"contracts/renewals/{ent_id}/{ts}_{contract_file.filename}"
+        try:
+            storage = get_storage_backend()
+            await storage.upload(file_data, storage_key, contract_file.content_type or "application/octet-stream")
+            file_path_stored = storage_key
+            file_name_stored = contract_file.filename
+        except Exception:
+            file_path_stored = f"local/{ts}_{contract_file.filename}"
+            file_name_stored = contract_file.filename
+
+    # Parse ISO date strings
+    def _parse_date(s: str | None):
+        if not s:
+            return None
+        try:
+            return date_type.fromisoformat(s)
+        except ValueError:
+            return None
 
     # ── 1. New SW_ID ──────────────────────────────────────────────────────────
     max_sw = (await db.execute(
@@ -194,12 +232,15 @@ async def renew_entitlement(
     # ── 2. New Contract ───────────────────────────────────────────────────────
     new_contract = Contract(
         sw_id=new_sw_id,
-        po_number=body.po_number,
-        clm_id=body.clm_id,
-        start_date=body.start_date,
-        end_date=body.end_date,
-        total_value_inr=body.total_value_inr,
-        auto_renewal_clause=body.auto_renewal_clause,
+        po_number=po_number,
+        clm_id=clm_id,
+        start_date=_parse_date(start_date),
+        end_date=_parse_date(end_date),
+        total_value_inr=total_value_inr,
+        auto_renewal_clause=auto_renewal_clause,
+        file_name=file_name_stored,
+        file_path=file_path_stored,
+        storage_backend="supabase" if file_path_stored and not file_path_stored.startswith("local/") else "local",
         created_by=current_user.id,
     )
     db.add(new_contract)
@@ -216,13 +257,13 @@ async def renew_entitlement(
         ent_id=new_ent_id,
         sw_id=new_sw_id,
         contract_id=new_contract.id,
-        contract_name=body.contract_name,
+        contract_name=contract_name,
         metric_id=old_ent.metric_id,
         license_type=old_ent.license_type,
-        entitled_count=body.entitled_count if body.entitled_count is not None else old_ent.entitled_count,
+        entitled_count=entitled_count if entitled_count is not None else old_ent.entitled_count,
         in_use_count=0,
-        unit_cost_inr=body.unit_cost_inr,
-        annual_cost_inr=body.annual_cost_inr,
+        unit_cost_inr=unit_cost_inr,
+        annual_cost_inr=annual_cost_inr,
         region_id=old_ent.region_id,
         discovery_source_id=old_ent.discovery_source_id,
         usage_method_id=old_ent.usage_method_id,
@@ -240,7 +281,7 @@ async def renew_entitlement(
         db, current_user.id, "ENTITLEMENT_RENEWED", "entitlement", new_ent_id,
         sw_id=new_sw_id,
         before={"ent_id": ent_id, "sw_id": old_ent.sw_id},
-        after={"new_ent_id": new_ent_id, "new_sw_id": new_sw_id, "contract_name": body.contract_name},
+        after={"new_ent_id": new_ent_id, "new_sw_id": new_sw_id, "contract_name": contract_name, "file_uploaded": bool(file_name_stored)},
         is_gxp=(old_sw.gxp_flag != "no"),
     )
 

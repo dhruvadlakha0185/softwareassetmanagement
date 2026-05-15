@@ -77,9 +77,11 @@ function RenewModal({ ent, onClose, onRenewed }) {
     entitled_count: ent.entitled_count ?? "", unit_cost_inr: ent.unit_cost_inr ?? "",
     annual_cost_inr: ent.annual_cost_inr ?? "", notes: "" };
   const [form, setForm] = useState(blank);
+  const [contractFile, setContractFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const fileRef = useRef(null);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -87,18 +89,18 @@ function RenewModal({ ent, onClose, onRenewed }) {
     if (!form.contract_name.trim()) { setError("Contract Name is required."); return; }
     setSubmitting(true); setError(null);
     try {
-      const payload = {
-        contract_name: form.contract_name.trim(),
-        po_number: form.po_number || null,
-        clm_id: form.clm_id || null,
-        start_date: form.start_date || null,
-        end_date: form.end_date || null,
+      const fields = {
+        contract_name:  form.contract_name.trim(),
+        po_number:      form.po_number || null,
+        clm_id:         form.clm_id || null,
+        start_date:     form.start_date || null,
+        end_date:       form.end_date || null,
         entitled_count: form.entitled_count ? parseInt(form.entitled_count) : null,
-        unit_cost_inr: form.unit_cost_inr ? parseInt(form.unit_cost_inr) : null,
+        unit_cost_inr:  form.unit_cost_inr ? parseInt(form.unit_cost_inr) : null,
         annual_cost_inr: form.annual_cost_inr ? parseInt(form.annual_cost_inr) : null,
-        notes: form.notes || null,
+        notes:          form.notes || null,
       };
-      const res = await renewEntitlement(ent.ent_id, payload);
+      const res = await renewEntitlement(ent.ent_id, fields, contractFile);
       setResult(res);
       onRenewed();
     } catch (e) {
@@ -132,6 +134,7 @@ function RenewModal({ ent, onClose, onRenewed }) {
               <div>New SW ID: <code>{result.new_sw_id}</code></div>
               <div>New ENT ID: <code>{result.new_ent_id}</code></div>
               <div>Retired: <code>{result.retired_ent_id}</code> → EXPIRED</div>
+              {contractFile && <div style={{ color: "var(--teal-m)" }}>Document: {contractFile.name} — uploaded</div>}
             </div>
             <button className="btn btn-p btn-sm" style={{ marginTop: 14 }} onClick={onClose}>Done</button>
           </div>
@@ -173,6 +176,41 @@ function RenewModal({ ent, onClose, onRenewed }) {
               <div style={{ gridColumn: "1 / -1" }}>
                 <label className="fl" style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, display: "block" }}>ANNUAL COST (INR)</label>
                 <input className="fi2" style={{ width: "100%" }} type="number" min="0" value={form.annual_cost_inr} onChange={e => set("annual_cost_inr", e.target.value)} />
+              </div>
+
+              {/* Contract document upload */}
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label className="fl" style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, display: "block" }}>
+                  CONTRACT DOCUMENT <span style={{ fontWeight: 400, color: "var(--tx-q)" }}>(PDF / DOCX — optional)</span>
+                </label>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept=".pdf,.docx,.doc"
+                    style={{ display: "none" }}
+                    onChange={e => setContractFile(e.target.files?.[0] || null)}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-o btn-sm"
+                    style={{ whiteSpace: "nowrap" }}
+                    onClick={() => fileRef.current?.click()}
+                  >
+                    Choose File
+                  </button>
+                  {contractFile ? (
+                    <span style={{ fontSize: 12, color: "var(--teal-m)", fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {contractFile.name}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 12, color: "var(--tx-q)" }}>No file selected</span>
+                  )}
+                  {contractFile && (
+                    <button type="button" style={{ background: "none", border: "none", color: "var(--tx-q)", cursor: "pointer", fontSize: 13 }}
+                      onClick={() => { setContractFile(null); if (fileRef.current) fileRef.current.value = ""; }}>✕</button>
+                  )}
+                </div>
               </div>
             </div>
 
