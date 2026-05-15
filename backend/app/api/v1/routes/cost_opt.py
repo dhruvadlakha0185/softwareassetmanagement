@@ -106,7 +106,8 @@ async def get_scorecard(
     # Sort: OVER_DEPLOYED first, then by est_saving desc
     items.sort(key=lambda x: (0 if x.status == "OVER_DEPLOYED" else 1, -x.est_annual_saving_inr))
 
-    total_saving = sum(i.est_annual_saving_inr for i in items)
+    total_saving = sum(i.est_annual_saving_inr for i in items if i.status == "UNDER_UTILISED")
+    total_risk_exposure = sum(i.est_annual_saving_inr for i in items if i.status == "OVER_DEPLOYED")
     under_utilised_count = sum(1 for i in items if i.status == "UNDER_UTILISED")
     renewal_actions = sum(
         1 for i in items
@@ -115,6 +116,7 @@ async def get_scorecard(
 
     return CostOptScorecardOut(
         total_est_saving_inr=total_saving,
+        total_risk_exposure_inr=total_risk_exposure,
         under_utilised_count=under_utilised_count,
         renewal_actions_count=renewal_actions,
         items=items,

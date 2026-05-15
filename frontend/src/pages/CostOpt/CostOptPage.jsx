@@ -35,7 +35,7 @@ export default function CostOptPage() {
   useEffect(() => {
     fetchScorecard()
       .then(setScorecard)
-      .catch(() => setScorecard({ total_est_saving_inr: 0, under_utilised_count: 0, renewal_actions_count: 0, items: [] }))
+      .catch(() => setScorecard({ total_est_saving_inr: 0, total_risk_exposure_inr: 0, under_utilised_count: 0, renewal_actions_count: 0, items: [] }))
       .finally(() => setLoading(false));
   }, []);
 
@@ -110,10 +110,10 @@ export default function CostOptPage() {
           <div style={{ fontSize: 24, fontWeight: 700 }}>{loading ? "—" : sc.renewal_actions_count ?? 0}</div>
           <div style={{ fontSize: 11, color: "var(--green-m)", marginTop: 2 }}>Right-size before renewal</div>
         </div>
-        <div style={{ border: "1px solid var(--bdr)", borderRadius: 8, padding: "12px 16px", borderLeft: "3px solid var(--accent)" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.5, marginBottom: 4 }}>OPPORTUNITIES</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: "var(--accent)" }}>{loading ? "—" : fmtINR(sc.total_est_saving_inr)}</div>
-          <div style={{ fontSize: 11, color: "var(--tx-q)", marginTop: 2 }}>Total identifiable</div>
+        <div style={{ border: "1px solid var(--bdr)", borderRadius: 8, padding: "12px 16px", borderLeft: "3px solid var(--red-m)" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.5, marginBottom: 4 }}>RISK EXPOSURE</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: "var(--red-m)" }}>{loading ? "—" : fmtINR(sc.total_risk_exposure_inr)}</div>
+          <div style={{ fontSize: 11, color: "var(--tx-q)", marginTop: 2 }}>Unlicensed overage cost</div>
         </div>
       </div>
 

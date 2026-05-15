@@ -26,7 +26,8 @@ class CostOptItem(BaseModel):
 
 
 class CostOptScorecardOut(BaseModel):
-    total_est_saving_inr: int
+    total_est_saving_inr: int      # UNDER_UTILISED savings only (right-size opportunities)
+    total_risk_exposure_inr: int   # OVER_DEPLOYED exposure only (unlicensed overage cost)
     under_utilised_count: int
-    renewal_actions_count: int    # items expiring within 90 days
+    renewal_actions_count: int     # items expiring within 90 days
     items: list[CostOptItem]
