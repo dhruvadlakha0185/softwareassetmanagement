@@ -61,8 +61,10 @@ async def list_catalog(
         q = q.where(SoftwareCatalog.canonical_name.ilike(f"%{search}%"))
     if category_id:
         q = q.where(SoftwareCatalog.category_id == category_id)
-    if gxp_flag:
-        q = q.where(SoftwareCatalog.gxp_flag == gxp_flag)
+    if gxp_flag == "yes":
+        q = q.where(SoftwareCatalog.gxp_flag != "no")
+    elif gxp_flag == "no":
+        q = q.where(SoftwareCatalog.gxp_flag == "no")
     if vendor_risk:
         q = q.where(SoftwareCatalog.vendor_risk == vendor_risk)
     result = await db.execute(q.order_by(SoftwareCatalog.sw_id))
@@ -93,8 +95,10 @@ async def list_catalog_rows(
         q = q.where(SoftwareCatalog.canonical_name.ilike(f"%{search}%"))
     if category_id:
         q = q.where(SoftwareCatalog.category_id == category_id)
-    if gxp_flag:
-        q = q.where(SoftwareCatalog.gxp_flag == gxp_flag)
+    if gxp_flag == "yes":
+        q = q.where(SoftwareCatalog.gxp_flag != "no")
+    elif gxp_flag == "no":
+        q = q.where(SoftwareCatalog.gxp_flag == "no")
     if vendor_risk:
         q = q.where(SoftwareCatalog.vendor_risk == vendor_risk)
     result = await db.execute(q.order_by(SoftwareCatalog.sw_id))

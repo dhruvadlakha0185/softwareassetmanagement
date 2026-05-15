@@ -2,12 +2,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchCatalogRows, fetchCatalogDetail, addAlias, deleteAlias } from "../../api/catalog";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const GXP_BADGE = {
-  no:          <span style={{ fontSize: 11, color: "var(--tx-q)" }}>—</span>,
-  yes_21cfr:   <span className="tag tb3">21 CFR</span>,
-  yes_annex11: <span className="tag tb3">Annex 11</span>,
-  yes_both:    <span className="tag tb3">GxP Both</span>,
-};
+// All non-"no" values display as "GxP" — framework detail is internal
+function GxpBadge({ flag }) {
+  if (!flag || flag === "no") return <span className="tag tg3">Non-GxP</span>;
+  return <span className="tag tb3">GxP</span>;
+}
 const RISK_BADGE = {
   LOW:    <span className="tag tg2">LOW</span>,
   MEDIUM: <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: "var(--amber-l)", color: "var(--amber-m)" }}>MED</span>,
@@ -102,10 +101,7 @@ function DetailDrawer({ swId, onClose }) {
 
           {/* Tags row */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-            {GXP_BADGE[d.gxp_flag] !== GXP_BADGE.no && (
-              <span className="tag tg2">{d.gxp_flag === "yes_21cfr" ? "21 CFR" : d.gxp_flag === "yes_annex11" ? "Annex 11" : "GxP Both"}</span>
-            )}
-            {d.gxp_flag === "no" && <span className="tag tg3">Non-GxP</span>}
+            <GxpBadge flag={d.gxp_flag} />
             {firstEnt && TYPE_BADGE[firstEnt.license_type]}
             {RISK_BADGE[d.vendor_risk] && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 3, background: d.vendor_risk === "HIGH" ? "#fff0f0" : d.vendor_risk === "MEDIUM" ? "var(--amber-l)" : "var(--green-l)", color: d.vendor_risk === "HIGH" ? "var(--red-m)" : d.vendor_risk === "MEDIUM" ? "var(--amber-m)" : "var(--green-m)" }}>{d.vendor_risk} Audit Risk</span>}
             {firstEnt && STATUS_BADGE[firstEnt.status]}
@@ -270,11 +266,9 @@ export default function CatalogPage() {
             value={search} onChange={e => setSearch(e.target.value)}
           />
           <select className="fi2" value={filterGxp} onChange={e => setFilterGxp(e.target.value)}>
-            <option value="">All (GxP)</option>
+            <option value="">All GxP</option>
+            <option value="yes">GxP</option>
             <option value="no">Non-GxP</option>
-            <option value="yes_21cfr">21 CFR</option>
-            <option value="yes_annex11">Annex 11</option>
-            <option value="yes_both">GxP Both</option>
           </select>
           <select className="fi2" value={filterRisk} onChange={e => setFilterRisk(e.target.value)}>
             <option value="">All Vendor Risk</option>
@@ -327,7 +321,7 @@ export default function CatalogPage() {
                   <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--tx-m)", whiteSpace: "nowrap" }}>{row.publisher || "—"}</td>
                   <td style={{ padding: "9px 12px", fontSize: 12, whiteSpace: "nowrap" }}>{row.category_name || "—"}</td>
                   <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--tx-m)", whiteSpace: "nowrap" }}>{row.sub_category_name || "—"}</td>
-                  <td style={{ padding: "9px 12px" }}>{GXP_BADGE[row.gxp_flag] ?? "—"}</td>
+                  <td style={{ padding: "9px 12px" }}><GxpBadge flag={row.gxp_flag} /></td>
                   <td style={{ padding: "9px 12px" }}>{RISK_BADGE[row.vendor_risk] ?? row.vendor_risk}</td>
                   <td style={{ padding: "9px 12px" }}>{row.license_type ? TYPE_BADGE[row.license_type] : <span style={{ color: "var(--tx-q)", fontSize: 11 }}>—</span>}</td>
                   <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--tx-m)", whiteSpace: "nowrap" }}>{row.metric_name || "—"}</td>
