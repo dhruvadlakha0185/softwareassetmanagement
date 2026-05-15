@@ -11,6 +11,7 @@ class DiscoveryRecordOut(BaseModel):
     canonical_name: str | None = None
     application_tagged: str | None = None
     source_id: UUID | None = None
+    source_name: str | None = None          # resolved from discovery_sources
     device_id: str | None = None
     device_type: str | None = None
     os: str | None = None
@@ -18,6 +19,7 @@ class DiscoveryRecordOut(BaseModel):
     last_seen: date | None = None
     site: str | None = None
     region_id: UUID | None = None
+    region_name: str | None = None          # resolved from regions
     upload_date: date | None = None
     upload_batch_id: UUID | None = None
     model_config = {"from_attributes": True}

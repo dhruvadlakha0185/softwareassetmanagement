@@ -532,7 +532,7 @@ export default function EntitlementsPage() {
             <span style={{ color: "var(--red-m)" }}>{uploadResult.error}</span>
           ) : (
             <>
-              <strong>Upload complete</strong> — Tab A: {uploadResult.tab_a_updated} rows · Tab B: {uploadResult.tab_b_updated} rows updated
+              <strong>Upload complete</strong> — Tab A: {uploadResult.tab_a_updated} entitlements updated · Tab B: {uploadResult.tab_b_updated} discovery records inserted
               {uploadResult.errors?.length > 0 && (
                 <div style={{ color: "var(--amber-m)", marginTop: 4 }}>{uploadResult.errors.join("; ")}</div>
               )}

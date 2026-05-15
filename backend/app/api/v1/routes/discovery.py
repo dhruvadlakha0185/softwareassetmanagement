@@ -68,6 +68,8 @@ async def list_discovery(
     matched: bool | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.models.masters import DiscoverySource, Region
+
     q = select(DiscoveryRecord)
     if sw_id:
         q = q.where(DiscoveryRecord.sw_id == sw_id)
@@ -76,7 +78,45 @@ async def list_discovery(
     elif matched is False:
         q = q.where(DiscoveryRecord.sw_id.is_(None))
     result = await db.execute(q.order_by(DiscoveryRecord.disc_id))
-    return [DiscoveryRecordOut.model_validate(r) for r in result.scalars().all()]
+    recs = result.scalars().all()
+    if not recs:
+        return []
+
+    # Bulk-load lookup tables (no N+1)
+    src_ids    = list({r.source_id for r in recs if r.source_id})
+    region_ids = list({r.region_id for r in recs if r.region_id})
+    sw_ids     = list({r.sw_id for r in recs if r.sw_id})
+
+    src_map: dict = {}
+    if src_ids:
+        s_rows = await db.execute(select(DiscoverySource).where(DiscoverySource.id.in_(src_ids)))
+        for s in s_rows.scalars():
+            src_map[s.id] = s.name
+
+    region_map: dict = {}
+    if region_ids:
+        r_rows = await db.execute(select(Region).where(Region.id.in_(region_ids)))
+        for r in r_rows.scalars():
+            region_map[r.id] = r.name
+
+    sw_map: dict = {}
+    if sw_ids:
+        sw_rows = await db.execute(
+            select(SoftwareCatalog.sw_id, SoftwareCatalog.canonical_name)
+            .where(SoftwareCatalog.sw_id.in_(sw_ids))
+        )
+        for row in sw_rows:
+            sw_map[row[0]] = row[1]
+
+    out = []
+    for rec in recs:
+        base = DiscoveryRecordOut.model_validate(rec)
+        out.append(base.model_copy(update={
+            "source_name":  src_map.get(rec.source_id) if rec.source_id else None,
+            "region_name":  region_map.get(rec.region_id) if rec.region_id else None,
+            "canonical_name": sw_map.get(rec.sw_id) if rec.sw_id else rec.canonical_name,
+        }))
+    return out
 
 
 @router.post("/ingest", response_model=IngestResultOut, status_code=201)

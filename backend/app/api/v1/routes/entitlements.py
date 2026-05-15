@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.core.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.contracts import Entitlement
@@ -12,7 +12,7 @@ from app.models.catalog import SoftwareCatalog
 from app.models.masters import LicenseMetric
 from app.models.uploads import UsageUpload
 from app.schemas.entitlements import EntitlementOut, EntitlementUpdate, UploadResultOut, RenewEntitlementRequest, RenewEntitlementOut
-from app.services.uploads.xlsx_processor import generate_template, parse_tab_a, parse_tab_b, file_hash, xls_to_xlsx
+from app.services.uploads.xlsx_processor import generate_template, parse_tab_a, parse_tab_b_discovery, file_hash, xls_to_xlsx
 from app.services.storage.factory import get_storage_backend
 
 router = APIRouter(prefix="/entitlements", tags=["entitlements"])
@@ -400,18 +400,59 @@ async def upload_usage(
     except Exception as e:
         errors.append(f"Tab A parse error: {e}")
 
-    # Parse Tab B — updates in_use_count only
+    # Parse Tab B — License Discovery: create DiscoveryRecord rows
     try:
-        tab_b_rows = parse_tab_b(data)
-        for row in tab_b_rows:
-            ent = await _find_ent(row.get("ent_id"), row.get("sw_id"), "Tab B")
-            if not ent:
-                continue
-            if row.get("in_use_count") is not None:
-                ent.in_use_count = row["in_use_count"]
-            tab_b_count += 1
+        import uuid as _uuid
+        from app.models.discovery import DiscoveryRecord
+        from app.models.catalog import SoftwareAlias
+
+        tab_b_rows = parse_tab_b_discovery(data)
+        if tab_b_rows:
+            # Next DISC_ID counter (single query)
+            max_disc = (await db.execute(
+                select(func.max(DiscoveryRecord.disc_id)).where(DiscoveryRecord.disc_id.like("D-%"))
+            )).scalar_one_or_none()
+            next_n = int(max_disc.split("-")[1]) + 1 if max_disc else 1
+            batch_id = _uuid.uuid4()
+            today_d = date.today()
+
+            for i, row in enumerate(tab_b_rows):
+                sw_id = (row.get("sw_id") or "").strip() or None
+                contract_name = (row.get("contract_name") or "").strip()
+                if not contract_name and not sw_id:
+                    continue
+                # If no sw_id, try to resolve from catalog
+                if not sw_id and contract_name:
+                    res = await db.execute(
+                        select(SoftwareCatalog.sw_id)
+                        .where(SoftwareCatalog.canonical_name.ilike(contract_name))
+                    )
+                    sw_id = res.scalar_one_or_none()
+                    if not sw_id:
+                        res2 = await db.execute(
+                            select(SoftwareAlias.sw_id)
+                            .where(SoftwareAlias.alias_name.ilike(contract_name))
+                        )
+                        sw_id = res2.scalar_one_or_none()
+
+                disc_id = f"D-{(next_n + tab_b_count):04d}"
+                rec = DiscoveryRecord(
+                    disc_id=disc_id,
+                    contract_name=contract_name or (sw_id or ""),
+                    sw_id=sw_id,
+                    application_tagged=row.get("application_tagged"),
+                    device_id=row.get("device_id"),
+                    device_type=row.get("device_type") or "endpoint",
+                    os=row.get("os"),
+                    version=row.get("version"),
+                    last_seen=row.get("last_seen"),
+                    upload_date=today_d,
+                    upload_batch_id=batch_id,
+                )
+                db.add(rec)
+                tab_b_count += 1
     except Exception as e:
-        errors.append(f"Tab B parse error: {e}")
+        errors.append(f"Tab B (discovery) parse error: {e}")
 
     await db.flush()
 

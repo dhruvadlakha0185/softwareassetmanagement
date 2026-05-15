@@ -1,14 +1,15 @@
 """
-XLSX template generator and Tab A / Tab B parser.
+XLSX template generator and parsers.
 
-Tab A — Full entitlement update (all fields in one sheet):
+Tab A — Entitlement Update (all fields in one sheet):
   LOCKED (grey):    ENT_ID | SW_ID | Canonical Name | Metric | Current Status | PO Number
   EDITABLE (white): Contract Name | License Type | Entitled Count | In-Use Count
                     | Unit Cost (INR) | Annual Cost (INR) | Notes
 
-Tab B — Usage-only update (lightweight alternative for ops teams):
-  LOCKED (grey):    ENT_ID | SW_ID | Canonical Name
-  EDITABLE (white): In-Use Count | Reporting Period | Reason for Change
+Tab B — License Discovery (device-level usage data):
+  LOCKED (grey):    ENT_ID | SW_ID | Contract Software Name
+  EDITABLE (white): Application Tagged | Data Source | Device Type (endpoint/server)
+                    | Device ID | OS | Version | Last Seen (YYYY-MM-DD) | Region
 """
 import io
 import hashlib
@@ -75,10 +76,17 @@ def generate_template(entitlements: list[dict]) -> bytes:
         for cell in row:
             cell.fill = _LOCKED_FILL
 
-    # ── Tab B ──────────────────────────────────────────────────────────────────
-    ws_b = wb.create_sheet("Tab B - Usage")
-    headers_b = ["ENT_ID", "SW_ID", "Canonical Name", "In-Use Count",
-                 "Reporting Period", "Reason for Change"]
+    # ── Tab B — License Discovery ─────────────────────────────────────────────
+    # Locked (cols 1-3): ENT_ID | SW_ID | Contract Software Name
+    # Editable (cols 4-11): Application Tagged | Data Source | Device Type
+    #   | Device ID | OS | Version | Last Seen (YYYY-MM-DD) | Region
+    ws_b = wb.create_sheet("Tab B - License Discovery")
+    headers_b = [
+        "ENT_ID", "SW_ID", "Contract Software Name",          # locked (1-3)
+        "Application Tagged", "Data Source",                   # editable (4-5)
+        "Device Type (endpoint/server)", "Device ID",          # editable (6-7)
+        "OS", "Version", "Last Seen (YYYY-MM-DD)", "Region",   # editable (8-11)
+    ]
     ws_b.append(headers_b)
     _style_header(ws_b, 1, len(headers_b))
 
@@ -86,13 +94,18 @@ def generate_template(entitlements: list[dict]) -> bytes:
         ws_b.append([
             ent.get("ent_id", ""),
             ent.get("sw_id", ""),
-            ent.get("canonical_name", ""),
-            ent.get("in_use_count") or "",
-            "",  # Reporting Period — user fills
-            "",  # Reason — user fills
+            ent.get("contract_name", "") or ent.get("canonical_name", ""),
+            "",  # Application Tagged — user fills
+            "",  # Data Source — user fills
+            "",  # Device Type — user fills
+            "",  # Device ID — user fills
+            "",  # OS — user fills
+            "",  # Version — user fills
+            "",  # Last Seen — user fills
+            "",  # Region — user fills
         ])
 
-    # Grey out read-only info columns (1-3)
+    # Grey out locked reference columns (1-3)
     for row in ws_b.iter_rows(min_row=2, min_col=1, max_col=3):
         for cell in row:
             cell.fill = _LOCKED_FILL
@@ -145,25 +158,63 @@ def parse_tab_a(data: bytes) -> list[dict]:
     return result
 
 
-def parse_tab_b(data: bytes) -> list[dict]:
+def parse_tab_b_discovery(data: bytes) -> list[dict]:
     """
-    Parse Tab B sheet. Returns list of dicts with keys:
-    ent_id, in_use_count, reporting_period, reason
-    Skips rows where ENT_ID is blank.
+    Parse Tab B (License Discovery) sheet.
+    Column layout (0-indexed):
+      0  ENT_ID (locked — reference/lookup)
+      1  SW_ID (locked — reference/lookup)
+      2  Contract Software Name (locked — becomes discovery.contract_name)
+      3  Application Tagged (editable)
+      4  Data Source (editable)
+      5  Device Type (editable — normalised to endpoint/server)
+      6  Device ID (editable)
+      7  OS (editable)
+      8  Version (editable)
+      9  Last Seen YYYY-MM-DD (editable)
+      10 Region (editable)
+    Skips rows where both ENT_ID and Contract Software Name are blank.
     """
+    from datetime import datetime as _dt
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-    ws = wb["Tab B - Usage"]
+    ws = wb["Tab B - License Discovery"]
     rows = list(ws.iter_rows(min_row=2, values_only=True))
     result = []
     for row in rows:
-        if not row or not row[0]:
+        if not row:
             continue
+        ent_id        = str(row[0]).strip() if row[0] else None
+        sw_id         = str(row[1]).strip() if row[1] else None
+        contract_name = str(row[2]).strip() if row[2] else None
+        if not ent_id and not contract_name:
+            continue  # blank row
+
+        raw_device_type = str(row[5]).strip().lower() if row[5] else "endpoint"
+        device_type = raw_device_type if raw_device_type in ("endpoint", "server") else "endpoint"
+
+        raw_date = row[9]
+        last_seen = None
+        if raw_date:
+            try:
+                if hasattr(raw_date, "date"):
+                    last_seen = raw_date.date()
+                else:
+                    last_seen = _dt.strptime(str(raw_date).strip(), "%Y-%m-%d").date()
+            except ValueError:
+                pass
+
         result.append({
-            "ent_id":           str(row[0]).strip(),
-            "sw_id":            str(row[1]).strip() if row[1] else None,   # for lookup / validation
-            "in_use_count":     int(row[3]) if row[3] is not None else None,
-            "reporting_period": str(row[4]).strip() if row[4] else None,
-            "reason":           str(row[5]).strip() if row[5] else None,
+            "ent_id":            ent_id,
+            "sw_id":             sw_id,
+            "contract_name":     contract_name,
+            "application_tagged": str(row[3]).strip() if row[3] else None,
+            "data_source":        str(row[4]).strip() if row[4] else None,
+            "device_type":        device_type,
+            "device_id":          str(row[6]).strip() if row[6] else None,
+            "os":                 str(row[7]).strip() if row[7] else None,
+            "version":            str(row[8]).strip() if row[8] else None,
+            "last_seen":          last_seen,
+            "region":             str(row[10]).strip() if row[10] else None,
         })
     return result
 
