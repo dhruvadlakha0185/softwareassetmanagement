@@ -273,23 +273,21 @@ export default function ReconciliationPage() {
         </div>
       )}
 
-      {/* Run history */}
-      {runs.length > 1 && (
+      {/* Last run summary */}
+      {runs.length > 0 && (
         <div style={{ flexShrink: 0, marginBottom: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.8,
-            textTransform: "uppercase", marginBottom: 8 }}>
-            Run History ({runs.length})
+            textTransform: "uppercase", marginBottom: 6 }}>
+            Last Run
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {runs.map(r => (
-              <div key={r.id} style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--tx-m)",
-                padding: "6px 12px", background: "var(--surf)", borderRadius: 6,
-                border: "1px solid var(--bdr)" }}>
-                <span>{new Date(r.run_date).toLocaleString("en-IN")}</span>
-                <span style={{ color: "var(--tx-q)" }}>{r.entitlements_processed} processed</span>
-              </div>
-            ))}
-          </div>
+          {(() => { const r = runs[0]; return (
+            <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--tx-m)",
+              padding: "6px 12px", background: "var(--surf)", borderRadius: 6,
+              border: "1px solid var(--bdr)", width: "fit-content" }}>
+              <span>{new Date(r.run_date).toLocaleString("en-IN")}</span>
+              <span style={{ color: "var(--tx-q)" }}>{r.entitlements_processed} processed</span>
+            </div>
+          ); })()}
         </div>
       )}
     </div>
