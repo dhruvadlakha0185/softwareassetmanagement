@@ -1,12 +1,12 @@
 """
 XLSX template generator and Tab A / Tab B parser.
 
-Tab A — Entitlement Metadata:
+Tab A — Full entitlement update (all fields in one sheet):
   LOCKED (grey):    ENT_ID | SW_ID | Canonical Name | Metric | Current Status | PO Number
-  EDITABLE (white): Contract Name | License Type | Entitled Count
+  EDITABLE (white): Contract Name | License Type | Entitled Count | In-Use Count
                     | Unit Cost (INR) | Annual Cost (INR) | Notes
 
-Tab B — Usage Update:
+Tab B — Usage-only update (lightweight alternative for ops teams):
   LOCKED (grey):    ENT_ID | SW_ID | Canonical Name
   EDITABLE (white): In-Use Count | Reporting Period | Reason for Change
 """
@@ -47,7 +47,8 @@ def generate_template(entitlements: list[dict]) -> bytes:
     headers_a = [
         "ENT_ID", "SW_ID", "Canonical Name", "Metric", "Current Status", "PO Number",  # locked (1-6)
         "Contract Name", "License Type (subscription/perpetual)",                        # editable (7-8)
-        "Entitled Count", "Unit Cost (INR)", "Annual Cost (INR)", "Notes",               # editable (9-12)
+        "Entitled Count", "In-Use Count",                                                # editable (9-10)
+        "Unit Cost (INR)", "Annual Cost (INR)", "Notes",                                 # editable (11-13)
     ]
     ws_a.append(headers_a)
     _style_header(ws_a, 1, len(headers_a))
@@ -63,6 +64,7 @@ def generate_template(entitlements: list[dict]) -> bytes:
             ent.get("contract_name", ""),
             ent.get("license_type", ""),
             ent.get("entitled_count") or "",
+            ent.get("in_use_count") or "",
             ent.get("unit_cost_inr") or "",
             ent.get("annual_cost_inr") or "",
             ent.get("notes") or "",
@@ -109,13 +111,14 @@ def parse_tab_a(data: bytes) -> list[dict]:
       2  Canonical Name (locked)
       3  Metric (locked)
       4  Current Status (locked)
-      5  PO Number (locked — from contract, not editable)
+      5  PO Number (locked)
       6  Contract Name (editable)
       7  License Type (editable — normalised to lowercase)
       8  Entitled Count (editable)
-      9  Unit Cost INR (editable)
-      10 Annual Cost INR (editable)
-      11 Notes (editable)
+      9  In-Use Count (editable)
+      10 Unit Cost INR (editable)
+      11 Annual Cost INR (editable)
+      12 Notes (editable)
     Skips rows where ENT_ID is blank.
     """
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
@@ -133,9 +136,10 @@ def parse_tab_a(data: bytes) -> list[dict]:
             "contract_name":   str(row[6]).strip() if row[6] else None,
             "license_type":    license_type,
             "entitled_count":  int(row[8]) if row[8] is not None else None,
-            "unit_cost_inr":   int(row[9]) if row[9] is not None else None,
-            "annual_cost_inr": int(row[10]) if row[10] is not None else None,
-            "notes":           str(row[11]).strip() if row[11] else None,
+            "in_use_count":    int(row[9]) if row[9] is not None else None,
+            "unit_cost_inr":   int(row[10]) if row[10] is not None else None,
+            "annual_cost_inr": int(row[11]) if row[11] is not None else None,
+            "notes":           str(row[12]).strip() if row[12] else None,
         })
     return result
 

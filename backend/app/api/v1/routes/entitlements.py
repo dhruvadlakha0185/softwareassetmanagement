@@ -34,7 +34,24 @@ async def list_entitlements(
     if license_type:
         q = q.where(Entitlement.license_type == license_type)
     result = await db.execute(q.order_by(Entitlement.ent_id))
-    return [EntitlementOut.model_validate(e) for e in result.scalars().all()]
+    ents = result.scalars().all()
+
+    # Bulk-load software names (one query, no N+1)
+    if ents:
+        sw_ids = list({e.sw_id for e in ents})
+        sw_rows = await db.execute(
+            select(SoftwareCatalog.sw_id, SoftwareCatalog.canonical_name)
+            .where(SoftwareCatalog.sw_id.in_(sw_ids))
+        )
+        sw_name_map = {r[0]: r[1] for r in sw_rows}
+    else:
+        sw_name_map = {}
+
+    out = []
+    for e in ents:
+        base = EntitlementOut.model_validate(e)
+        out.append(EntitlementOut(**base.model_dump(), canonical_name=sw_name_map.get(e.sw_id)))
+    return out
 
 
 @router.get("/template")
@@ -126,7 +143,7 @@ async def upload_usage(
     tab_a_count = 0
     tab_b_count = 0
 
-    # Parse Tab A
+    # Parse Tab A — applies all non-null editable fields
     try:
         tab_a_rows = parse_tab_a(data)
         for row in tab_a_rows:
@@ -134,9 +151,9 @@ async def upload_usage(
             if not ent:
                 errors.append(f"Tab A: ENT_ID {row['ent_id']} not found — skipped")
                 continue
-            for field in ("entitled_count", "unit_cost_inr", "annual_cost_inr"):
-                if row[field] is not None:
-                    setattr(ent, field, row[field])
+            for k, v in row.items():
+                if k != "ent_id" and v is not None:
+                    setattr(ent, k, v)
             tab_a_count += 1
     except Exception as e:
         errors.append(f"Tab A parse error: {e}")

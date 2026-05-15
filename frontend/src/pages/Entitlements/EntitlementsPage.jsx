@@ -184,13 +184,15 @@ export default function EntitlementsPage() {
     }
   };
 
-  // Client-side search across ENT_ID, SW_ID, Contract Name
+  // Client-side search: ENT_ID, SW_ID, software name (canonical_name), contract name
+  // Status + Type filters are server-side; search narrows within those results
   const displayRows = search
     ? entitlements.filter(e => {
         const q = search.toLowerCase();
         return (
           e.ent_id.toLowerCase().includes(q) ||
           e.sw_id.toLowerCase().includes(q) ||
+          (e.canonical_name || "").toLowerCase().includes(q) ||
           (e.contract_name || "").toLowerCase().includes(q)
         );
       })

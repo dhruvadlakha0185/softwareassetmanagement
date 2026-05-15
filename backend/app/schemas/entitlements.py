@@ -7,6 +7,7 @@ from pydantic import BaseModel
 class EntitlementOut(BaseModel):
     ent_id: str
     sw_id: str
+    canonical_name: str | None = None   # resolved from software_catalog
     contract_id: UUID | None = None
     contract_name: str | None = None
     metric_id: UUID | None = None
