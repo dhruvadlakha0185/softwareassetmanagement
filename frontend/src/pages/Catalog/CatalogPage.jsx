@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchCatalogRows, fetchCatalogDetail, addAlias, deleteAlias } from "../../api/catalog";
+import { fetchCategories } from "../../api/masters";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 // All non-"no" values display as "GxP" — framework detail is internal
@@ -206,25 +207,35 @@ export default function CatalogPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
   const [filterGxp, setFilterGxp] = useState("");
-  const [filterRisk, setFilterRisk] = useState("");
+  const [filterOwner, setFilterOwner] = useState("");
+  const [categories, setCategories] = useState([]);
   const [selectedSwId, setSelectedSwId] = useState(null);
   const searchRef = useRef(null);
+
+  useEffect(() => {
+    fetchCategories().then(setCategories).catch(() => {});
+  }, []);
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
       if (search) params.search = search;
+      if (filterCategory) params.category_id = filterCategory;
       if (filterGxp) params.gxp_flag = filterGxp;
-      if (filterRisk) params.vendor_risk = filterRisk;
       setRows(await fetchCatalogRows(params));
     } finally {
       setLoading(false);
     }
-  }, [search, filterGxp, filterRisk]);
+  }, [search, filterCategory, filterGxp]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // Unique app owners derived from loaded rows (client-side filter)
+  const ownerOptions = [...new Set(rows.map(r => r.app_owner_name).filter(Boolean))].sort();
+  const displayRows = filterOwner ? rows.filter(r => r.app_owner_name === filterOwner) : rows;
 
   const COLS = [
     { key: "sw_id",           label: "SW_ID",          width: 80 },
@@ -254,29 +265,31 @@ export default function CatalogPage() {
         <div style={{ flexShrink: 0, marginBottom: 14 }}>
           <div style={{ fontSize: 11, color: "var(--tx-q)", marginBottom: 4 }}>SAM Platform <span style={{ color: "var(--tx-m)" }}>›</span> Software Catalog</div>
           <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 2 }}>Software Catalog</h1>
-          <p style={{ fontSize: 12.5, color: "var(--tx-m)" }}>{rows.length} software titles · canonical master list · onboarded by COE Admin</p>
+          <p style={{ fontSize: 12.5, color: "var(--tx-m)" }}>{displayRows.length} software titles · canonical master list · onboarded by COE Admin</p>
         </div>
 
-        {/* Filter + action bar */}
-        <div style={{ flexShrink: 0, display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Filter + action bar — single line, no wrap */}
+        <div style={{ flexShrink: 0, display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
           <input
             ref={searchRef}
-            className="fi2" style={{ flex: 1, minWidth: 200 }}
+            className="fi2" style={{ flex: 1, minWidth: 0 }}
             placeholder="Search SW_ID, software name, publisher…"
             value={search} onChange={e => setSearch(e.target.value)}
           />
-          <select className="fi2" value={filterGxp} onChange={e => setFilterGxp(e.target.value)}>
-            <option value="">All GxP</option>
+          <select className="fi2" style={{ flexShrink: 0 }} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+            <option value="">All Categories</option>
+            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <select className="fi2" style={{ flexShrink: 0 }} value={filterGxp} onChange={e => setFilterGxp(e.target.value)}>
+            <option value="">All (GxP)</option>
             <option value="yes">GxP</option>
             <option value="no">Non-GxP</option>
           </select>
-          <select className="fi2" value={filterRisk} onChange={e => setFilterRisk(e.target.value)}>
-            <option value="">All Vendor Risk</option>
-            <option value="LOW">LOW</option>
-            <option value="MEDIUM">MEDIUM</option>
-            <option value="HIGH">HIGH</option>
+          <select className="fi2" style={{ flexShrink: 0 }} value={filterOwner} onChange={e => setFilterOwner(e.target.value)}>
+            <option value="">All App Owners</option>
+            {ownerOptions.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
-          <button className="btn btn-p btn-sm" onClick={() => window.location.href = "/onboarding"} style={{ background: "var(--navy-mid)" }}>
+          <button className="btn btn-p btn-sm" style={{ flexShrink: 0, background: "var(--navy-mid)", whiteSpace: "nowrap" }} onClick={() => window.location.href = "/onboarding"}>
             + Onboard New
           </button>
         </div>
@@ -304,10 +317,10 @@ export default function CatalogPage() {
               {loading && (
                 <tr><td colSpan={COLS.length} style={{ textAlign: "center", padding: 24, color: "var(--tx-q)" }}>Loading…</td></tr>
               )}
-              {!loading && rows.length === 0 && (
+              {!loading && displayRows.length === 0 && (
                 <tr><td colSpan={COLS.length} style={{ textAlign: "center", padding: 24, color: "var(--tx-q)" }}>No software entries found.</td></tr>
               )}
-              {rows.map(row => (
+              {displayRows.map(row => (
                 <tr
                   key={row.sw_id}
                   style={{ borderBottom: "1px solid var(--bdr)", background: selectedSwId === row.sw_id ? "var(--navy-xlt)" : undefined }}
