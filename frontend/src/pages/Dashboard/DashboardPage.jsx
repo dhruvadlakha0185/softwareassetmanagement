@@ -82,7 +82,7 @@ function SpendChart({ items }) {
 
   const COLORS = ["var(--navy-mid)", "var(--blue-m)", "var(--teal-m)", "var(--purple-m)", "var(--amber-m)", "var(--accent)"];
   const max = Math.max(...items.map(i => i.total_inr));
-  const CHART_H = 80; // height in px for bars
+  const BAR_MAX_H = 120; // max bar height in px — taller bars, less empty space
 
   const abbr = (name) => {
     const map = {
@@ -98,26 +98,34 @@ function SpendChart({ items }) {
   };
 
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: CHART_H + 52 }}>
-      {items.map((item, i) => {
-        const barH = Math.max(6, Math.round((item.total_inr / max) * CHART_H));
-        return (
-          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 0 }} title={`${item.category_name}: ${fmtINR(item.total_inr)}`}>
-            {/* Value label above bar */}
-            <div style={{ fontSize: 10, color: "var(--tx-q)", marginBottom: 3, whiteSpace: "nowrap" }}>
-              {fmtINR(item.total_inr)}
-            </div>
-            {/* Bar — pushes down from top with spacer */}
-            <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end" }}>
+    /* paddingTop reserves space for value labels so they never overlap card title */
+    <div style={{ paddingTop: 18, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: BAR_MAX_H + 20 }}>
+        {items.map((item, i) => {
+          const barH = Math.max(10, Math.round((item.total_inr / max) * BAR_MAX_H));
+          return (
+            <div
+              key={i}
+              title={`${item.category_name}: ${fmtINR(item.total_inr)}`}
+              style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}
+            >
+              {/* Value label sits just above its bar */}
+              <div style={{ fontSize: 10, color: "var(--tx-q)", marginBottom: 3, whiteSpace: "nowrap" }}>
+                {fmtINR(item.total_inr)}
+              </div>
               <div style={{ width: "100%", height: barH, background: COLORS[i % COLORS.length], borderRadius: "3px 3px 0 0" }} />
             </div>
-            {/* Category label below bar */}
-            <div style={{ fontSize: 10, color: "var(--tx-m)", textAlign: "center", marginTop: 5, lineHeight: 1.2 }}>
-              {abbr(item.category_name)}
-            </div>
+          );
+        })}
+      </div>
+      {/* Category labels in a separate row below all bars */}
+      <div style={{ display: "flex", gap: 10, marginTop: 6, borderTop: "1px solid var(--bdr)", paddingTop: 5 }}>
+        {items.map((item, i) => (
+          <div key={i} style={{ flex: 1, fontSize: 10, color: "var(--tx-m)", textAlign: "center" }}>
+            {abbr(item.category_name)}
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 }

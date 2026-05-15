@@ -405,13 +405,12 @@ export default function OnboardingPage() {
                 </div>
                 <div className="fr3" style={{ marginTop: 8 }}>
                   <div className="fg">
-                    <label className="fl">GxP Flag</label>
-                    <select className="fi2" value={gxpFlag} onChange={e => setGxpFlag(e.target.value)}>
-                      <option value="no">Non-GxP</option>
-                      <option value="yes_21cfr">21 CFR Part 11</option>
-                      <option value="yes_annex11">Annex 11</option>
-                      <option value="yes_both">Both</option>
+                    <label className="fl">GxP Software?</label>
+                    <select className="fi2" value={gxpFlag === "no" ? "no" : "yes"} onChange={e => setGxpFlag(e.target.value === "yes" ? "yes_21cfr" : "no")}>
+                      <option value="no">No</option>
+                      <option value="yes">Yes</option>
                     </select>
+                    <div className="fhint">GxP framework (21 CFR / Annex 11) can be refined by COE Admin in the catalog.</div>
                   </div>
                   <div className="fg">
                     <label className="fl">Vendor Risk</label>
@@ -495,7 +494,7 @@ export default function OnboardingPage() {
               <div><strong>Total Value:</strong> {meta.total_value_inr ? `₹${Number(meta.total_value_inr).toLocaleString("en-IN")}` : "—"}</div>
               <div><strong>Line Items:</strong> {lines.filter(l => l.contract_name).length} ({lines.filter(l => l.contract_name).map(l => l.contract_name).join(", ") || "—"})</div>
               <div><strong>Aliases:</strong> {aliases.length > 0 ? aliases.join(", ") : "None"}</div>
-              <div><strong>GxP:</strong> {gxpFlag} · <strong>Risk:</strong> {vendorRisk} · <strong>Deploy:</strong> {deployment}</div>
+              <div><strong>GxP:</strong> {gxpFlag === "no" ? "No" : "Yes"} · <strong>Risk:</strong> {vendorRisk} · <strong>Deploy:</strong> {deployment}</div>
               {appOwnerNotes && <div><strong>Notes:</strong> {appOwnerNotes}</div>}
             </div>
             <div style={{ marginTop: 16 }}>
