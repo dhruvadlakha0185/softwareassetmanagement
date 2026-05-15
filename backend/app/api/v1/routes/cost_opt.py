@@ -68,11 +68,14 @@ async def get_scorecard(
         unit_cost = ent.unit_cost_inr or 0
         util_pct = round(in_use / entitled * 100, 1) if entitled > 0 else None
 
+        overage = max(0, in_use - entitled)
+
         if status == "UNDER_UTILISED":
             est_saving = unit_cost * idle
             action = "RIGHT-SIZE"
         elif status == "OVER_DEPLOYED":
-            est_saving = 0
+            # Financial exposure: cost of unlicensed seats already in use
+            est_saving = unit_cost * overage
             action = "IMMEDIATE-RISK"
         else:
             est_saving = 0

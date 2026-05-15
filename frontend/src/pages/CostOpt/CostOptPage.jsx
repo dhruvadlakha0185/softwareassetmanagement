@@ -225,8 +225,12 @@ export default function CostOptPage() {
                   {/* Est. annual saving */}
                   <td style={{ padding: "10px 12px", textAlign: "right", fontSize: 12,
                     fontWeight: item.est_annual_saving_inr > 0 ? 700 : 400,
-                    color: item.est_annual_saving_inr > 0 ? "var(--green-m)" : item.status === "OVER_DEPLOYED" ? "var(--red-m)" : "var(--tx-q)" }}>
-                    {item.est_annual_saving_inr > 0 ? fmtINR(item.est_annual_saving_inr) : item.status === "OVER_DEPLOYED" ? "Audit risk" : "—"}
+                    color: item.status === "OVER_DEPLOYED" ? "var(--red-m)" : item.est_annual_saving_inr > 0 ? "var(--green-m)" : "var(--tx-q)" }}>
+                    {item.est_annual_saving_inr > 0
+                      ? (item.status === "OVER_DEPLOYED"
+                          ? `${fmtINR(item.est_annual_saving_inr)} exposure`
+                          : fmtINR(item.est_annual_saving_inr))
+                      : item.status === "OVER_DEPLOYED" ? "Audit risk" : "—"}
                   </td>
 
                   {/* Next renewal */}
@@ -260,7 +264,11 @@ export default function CostOptPage() {
           {items.slice(0, 3).map((item, i) => (
             <span key={item.ent_id}>
               {i > 0 && " · "}
-              {item.canonical_name} → {item.est_annual_saving_inr > 0 ? fmtINR(item.est_annual_saving_inr) + "/yr" : "audit required"}
+              {item.canonical_name} → {item.est_annual_saving_inr > 0
+                ? (item.status === "OVER_DEPLOYED"
+                    ? fmtINR(item.est_annual_saving_inr) + " exposure"
+                    : fmtINR(item.est_annual_saving_inr) + "/yr")
+                : "audit required"}
             </span>
           ))}
           {sc.total_est_saving_inr > 0 && (
