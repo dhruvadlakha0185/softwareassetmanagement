@@ -168,3 +168,23 @@ def parse_tab_b(data: bytes) -> list[dict]:
 
 def file_hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def xls_to_xlsx(data: bytes) -> bytes:
+    """
+    Convert legacy .xls bytes to .xlsx bytes using xlrd + openpyxl.
+    Preserves sheet names and cell values; formatting is not preserved
+    (not needed — we only care about data values for parsing).
+    """
+    import xlrd
+    wb_src = xlrd.open_workbook(file_contents=data)
+    wb_dst = Workbook()
+    wb_dst.remove(wb_dst.active)
+    for sheet_name in wb_src.sheet_names():
+        ws_src = wb_src.sheet_by_name(sheet_name)
+        ws_dst = wb_dst.create_sheet(sheet_name)
+        for row_idx in range(ws_src.nrows):
+            ws_dst.append([ws_src.cell_value(row_idx, col_idx) for col_idx in range(ws_src.ncols)])
+    buf = io.BytesIO()
+    wb_dst.save(buf)
+    return buf.getvalue()

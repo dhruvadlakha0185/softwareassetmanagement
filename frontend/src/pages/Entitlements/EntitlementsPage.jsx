@@ -300,7 +300,7 @@ export default function EntitlementsPage() {
           onClick={handleDownloadTemplate}>⬇ Download Template</button>
         <label className="btn btn-p btn-sm" style={{ flex: "0 0 auto", cursor: "pointer", whiteSpace: "nowrap" }}>
           {uploading ? "Uploading…" : "⬆ Upload Usage"}
-          <input ref={fileInputRef} type="file" accept=".xlsx" style={{ display: "none" }}
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }}
             onChange={handleUpload} disabled={uploading} />
         </label>
       </div>

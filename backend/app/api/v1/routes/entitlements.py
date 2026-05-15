@@ -12,7 +12,7 @@ from app.models.catalog import SoftwareCatalog
 from app.models.masters import LicenseMetric
 from app.models.uploads import UsageUpload
 from app.schemas.entitlements import EntitlementOut, EntitlementUpdate, UploadResultOut
-from app.services.uploads.xlsx_processor import generate_template, parse_tab_a, parse_tab_b, file_hash
+from app.services.uploads.xlsx_processor import generate_template, parse_tab_a, parse_tab_b, file_hash, xls_to_xlsx
 from app.services.storage.factory import get_storage_backend
 
 router = APIRouter(prefix="/entitlements", tags=["entitlements"])
@@ -130,38 +130,14 @@ async def list_entitlements(
 
 
 @router.get("/template")
-async def download_template(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Entitlement).order_by(Entitlement.ent_id))
-    ents = result.scalars().all()
-
-    from app.models.contracts import Contract
-    rows = []
-    for ent in ents:
-        sw = await db.get(SoftwareCatalog, ent.sw_id)
-        metric = await db.get(LicenseMetric, ent.metric_id) if ent.metric_id else None
-        contract = await db.get(Contract, ent.contract_id) if ent.contract_id else None
-        rows.append({
-            "ent_id":          ent.ent_id,
-            "sw_id":           ent.sw_id,
-            "canonical_name":  sw.canonical_name if sw else "",
-            "metric_name":     metric.name if metric else "",
-            "status":          ent.status,
-            "po_number":       contract.po_number if contract else "",
-            "contract_name":   ent.contract_name or "",
-            "license_type":    ent.license_type,
-            "entitled_count":  ent.entitled_count,
-            "unit_cost_inr":   ent.unit_cost_inr,
-            "annual_cost_inr": ent.annual_cost_inr,
-            "in_use_count":    ent.in_use_count,
-            "notes":           None,
-        })
-
-    xlsx_bytes = generate_template(rows)
+async def download_template():
+    # Headers-only blank template — no pre-populated data rows
+    xlsx_bytes = generate_template([])
     today = date.today().isoformat()
     return StreamingResponse(
         io.BytesIO(xlsx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=entitlements_{today}.xlsx"},
+        headers={"Content-Disposition": f"attachment; filename=entitlements_template_{today}.xlsx"},
     )
 
 
@@ -209,10 +185,13 @@ async def upload_usage(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not file.filename or not file.filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=400, detail="Upload must be an .xlsx file")
+    fname = (file.filename or "").lower()
+    if not fname.endswith(".xlsx") and not fname.endswith(".xls"):
+        raise HTTPException(status_code=400, detail="Upload must be a .xlsx or .xls file")
 
     data = await file.read()
+    if fname.endswith(".xls"):
+        data = xls_to_xlsx(data)   # normalise legacy format before parsing
     fhash = file_hash(data)
     errors: list[str] = []
     tab_a_count = 0
