@@ -112,21 +112,20 @@ async def list_entitlements(
                 vendor_reseller = vendors[c.vendor_id]
             elif c.reseller:
                 vendor_reseller = c.reseller
-        out.append(EntitlementOut(
-            **base.model_dump(),
-            canonical_name=sw_info[0],
-            publisher=sw_info[1],
-            metric_name=metrics.get(e.metric_id) if e.metric_id else None,
-            po_number=c.po_number if c else None,
-            clm_id=c.clm_id if c else None,
-            start_date=c.start_date if c else None,
-            end_date=c.end_date if c else None,
-            vendor_reseller=vendor_reseller,
-            discovery_source_name=disc_sources.get(e.discovery_source_id) if e.discovery_source_id else None,
-            usage_method_name=methods.get(e.usage_method_id) if e.usage_method_id else None,
-            app_owner_name=owner.full_name if owner else None,
-            app_owner_initials=_initials(owner.full_name if owner else None),
-        ))
+        out.append(base.model_copy(update={
+            "canonical_name":        sw_info[0],
+            "publisher":             sw_info[1],
+            "metric_name":           metrics.get(e.metric_id) if e.metric_id else None,
+            "po_number":             c.po_number if c else None,
+            "clm_id":                c.clm_id if c else None,
+            "start_date":            c.start_date if c else None,
+            "end_date":              c.end_date if c else None,
+            "vendor_reseller":       vendor_reseller,
+            "discovery_source_name": disc_sources.get(e.discovery_source_id) if e.discovery_source_id else None,
+            "usage_method_name":     methods.get(e.usage_method_id) if e.usage_method_id else None,
+            "app_owner_name":        owner.full_name if owner else None,
+            "app_owner_initials":    _initials(owner.full_name if owner else None),
+        }))
     return out
 
 
