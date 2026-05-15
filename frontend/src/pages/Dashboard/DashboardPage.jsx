@@ -307,8 +307,10 @@ export default function DashboardPage() {
 
       </div>
 
-      {/* ── Row 3: Spend by Category + GxP Status + Shadow IT ───────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+      {/* ── Row 3: Spend by Category + GxP Status ───────────────────────── */}
+      {/* NOTE: Shadow IT Triage panel removed from Phase 1 — see commented block below.
+               Grid is 2-column; restore to 3-column when Shadow IT is re-added in Phase 2. */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
 
         {/* Spend by Category */}
         <div className="card">
@@ -316,91 +318,121 @@ export default function DashboardPage() {
           <SpendChart items={s.spend_by_category} />
         </div>
 
-        {/* GxP Software Status */}
+        {/* GxP Software Status — simplified to GxP / Non-GxP only */}
         <div className="card">
           <div className="ch">
             <div className="ct" style={{ display: "flex", alignItems: "center" }}>
               GxP Software Status
               <InfoTip text={
-                "GxP software requires compliance with pharmaceutical regulations:\n\n" +
-                "• 21 CFR Part 11 (US FDA) — electronic records & signatures validation for US operations\n" +
-                "• Annex 11 (EU EMA) — computerised systems validation for EU manufacturing\n" +
-                "• Both — software validated under both frameworks (global operations)\n\n" +
-                "Counts are derived from the gxp_flag field set in the Software Catalog."
+                "GxP (Good Practice) software must comply with pharmaceutical quality regulations.\n\n" +
+                "GxP = Yes: software flagged as subject to regulatory validation requirements.\n" +
+                "GxP = No: commercial software not subject to GxP validation.\n\n" +
+                "The specific regulatory framework (21 CFR Part 11, Annex 11, etc.) is managed\n" +
+                "internally by the COE team and is not surfaced in this view.\n\n" +
+                "Source: gxp_flag field in the Software Catalog."
               } />
             </div>
           </div>
-          {s.gxp_summary ? (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <tbody>
-                {[
-                  ["Total GxP Titles",  s.gxp_summary.total_gxp_titles, "var(--blue-m)",   "All SW with any GxP flag set"],
-                  ["21 CFR Part 11",    s.gxp_summary.cfr_21_count,    "var(--teal-m)",   "FDA 21 CFR Part 11 — US operations"],
-                  ["Annex 11 (EU)",     s.gxp_summary.annex11_count,   "var(--teal-m)",   "EU EMA Annex 11 — European sites"],
-                  ["Both Frameworks",  s.gxp_summary.both_count,      "var(--purple-m)", "Validated under both CFR + Annex 11"],
-                  ["Non-GxP",          s.gxp_summary.non_gxp_count,   "var(--tx-q)",     "Not subject to GxP validation"],
-                ].map(([label, count, color, hint]) => (
-                  <tr key={label} style={{ borderBottom: "1px solid var(--bdr)" }} title={hint}>
-                    <td style={{ padding: "7px 0", color: "var(--tx-m)" }}>{label}</td>
-                    <td style={{ padding: "7px 0", textAlign: "right", fontWeight: 700, color }}>
-                      {count} {count === 1 ? "title" : "titles"}
-                    </td>
-                  </tr>
-                ))}
-                <tr>
-                  <td style={{ padding: "7px 0", color: "var(--tx-m)" }}>21 CFR Part 11 Coverage</td>
-                  <td style={{ padding: "7px 0", textAlign: "right" }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: "var(--teal-m)", background: "var(--teal-l)", padding: "2px 7px", borderRadius: 3 }}>
-                      {s.gxp_summary.total_gxp_titles > 0 ? "Active" : "None"}
+          {s.gxp_summary ? (() => {
+            const gxpCount    = s.gxp_summary.total_gxp_titles;
+            const nonGxpCount = s.gxp_summary.non_gxp_count;
+            const total       = gxpCount + nonGxpCount;
+            const gxpPct      = total > 0 ? Math.round((gxpCount / total) * 100) : 0;
+            return (
+              <div>
+                {/* GxP row */}
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span className="tag tb3">GxP</span>
+                      <span style={{ fontSize: 12, color: "var(--tx-m)" }}>Subject to regulatory validation</span>
+                    </div>
+                    <span style={{ fontWeight: 700, fontSize: 18, color: "var(--blue-m)" }}>
+                      {gxpCount} <span style={{ fontSize: 11, fontWeight: 400 }}>title{gxpCount !== 1 ? "s" : ""}</span>
                     </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          ) : <div style={{ fontSize: 12, color: "var(--tx-q)" }}>Loading…</div>}
-        </div>
+                  </div>
+                  <div style={{ height: 6, background: "var(--bdr)", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${gxpPct}%`, height: "100%", background: "var(--blue-m)", borderRadius: 3 }} />
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--tx-q)", marginTop: 3 }}>{gxpPct}% of portfolio</div>
+                </div>
 
-        {/* Shadow IT */}
-        <div className="card">
-          <div className="ch" style={{ marginBottom: 10 }}>
-            <div className="ct" style={{ display: "flex", alignItems: "center" }}>
-              Shadow IT
-              <InfoTip text={
-                "Shadow IT = software found on endpoints during discovery scans that does NOT match any entry in the Software Catalog.\n\n" +
-                "These are unlicensed, unapproved, or untracked applications — a compliance and security risk.\n\n" +
-                "Source: Discovery records where sw_id IS NULL (contract name doesn't match any canonical SW entry)."
-              } />
-            </div>
-            <span style={{ fontSize: 10, fontWeight: 700, background: "var(--bdr)", color: "var(--tx-q)", padding: "2px 8px", borderRadius: 3 }}>Phase 2</span>
-          </div>
-          <div style={{ textAlign: "center", padding: "8px 0" }}>
-            <div style={{ fontSize: 32, color: "var(--bdr)", marginBottom: 10 }}>◷</div>
-            <div style={{ fontSize: 12, color: "var(--tx-q)", lineHeight: 1.6, marginBottom: 12 }}>
-              Full Shadow IT Triage (risk scoring, auto-block recommendations) is planned for Phase 2.
-            </div>
-            {(s.total_discovery_records ?? 0) > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ background: "var(--red-l)", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
-                  <span style={{ fontWeight: 700, color: "var(--red-m)", fontSize: 18 }}>
-                    {(s.total_discovery_records ?? 0) - (s.matched_discovery_count ?? 0)}
-                  </span>
-                  <span style={{ color: "var(--red-m)", marginLeft: 6 }}>unmatched discovery records</span>
+                {/* Non-GxP row */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span className="tag tg3">Non-GxP</span>
+                      <span style={{ fontSize: 12, color: "var(--tx-m)" }}>No GxP validation required</span>
+                    </div>
+                    <span style={{ fontWeight: 700, fontSize: 18, color: "var(--tx-m)" }}>
+                      {nonGxpCount} <span style={{ fontSize: 11, fontWeight: 400 }}>title{nonGxpCount !== 1 ? "s" : ""}</span>
+                    </span>
+                  </div>
+                  <div style={{ height: 6, background: "var(--bdr)", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${100 - gxpPct}%`, height: "100%", background: "var(--bdr-s)", borderRadius: 3 }} />
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--tx-q)", marginTop: 3 }}>{100 - gxpPct}% of portfolio</div>
                 </div>
-                <div style={{ background: "var(--green-l)", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
-                  <span style={{ fontWeight: 700, color: "var(--green-m)", fontSize: 18 }}>
-                    {s.matched_discovery_count ?? 0}
-                  </span>
-                  <span style={{ color: "var(--green-m)", marginLeft: 6 }}>matched to SW catalog</span>
+
+                {/* Total */}
+                <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--bdr)", paddingTop: 10 }}>
+                  <span style={{ fontSize: 12, color: "var(--tx-m)", fontWeight: 600 }}>Total Software Titles</span>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>{total}</span>
                 </div>
-                <button className="btn btn-o btn-sm" style={{ width: "100%", marginTop: 4 }} onClick={() => navigate("/discovery")}>
-                  View All Discovery Records →
-                </button>
               </div>
-            )}
-          </div>
+            );
+          })() : <div style={{ fontSize: 12, color: "var(--tx-q)" }}>Loading…</div>}
         </div>
 
       </div>
+
+      {/*
+       * ── PHASE 2: Shadow IT Triage Panel ────────────────────────────────────
+       * Removed from Phase 1 dashboard. Restore when Shadow IT Triage module
+       * is implemented in Phase 2.
+       *
+       * To re-enable:
+       *   1. Uncomment this block
+       *   2. Change the Row 3 grid above from "1fr 1fr" back to "1fr 1fr 1fr"
+       *   3. Remove the Phase 2 comment from the Row 3 grid div
+       *
+       * Shadow IT shows unmatched discovery records (sw_id IS NULL in discovery_records).
+       * Phase 2 will add: risk scoring per application, auto-block recommendations,
+       * integration with IT security tooling (CrowdStrike, Cisco Umbrella), and a
+       * triage workflow for COE Admin to approve/deny/catalog discovered software.
+       *
+       * Data available now (can be used when re-enabled):
+       *   s.total_discovery_records  — total discovery records
+       *   s.matched_discovery_count  — matched to SW catalog
+       *   (unmatched = total - matched)
+       *
+       * <div className="card">
+       *   <div className="ch" style={{ marginBottom: 10 }}>
+       *     <div className="ct">Shadow IT</div>
+       *     <span style={{ fontSize: 10, fontWeight: 700, background: "var(--bdr)", color: "var(--tx-q)", padding: "2px 8px", borderRadius: 3 }}>Phase 2</span>
+       *   </div>
+       *   <div style={{ textAlign: "center", padding: "8px 0" }}>
+       *     <div style={{ fontSize: 32, color: "var(--bdr)", marginBottom: 10 }}>◷</div>
+       *     <div style={{ fontSize: 12, color: "var(--tx-q)", lineHeight: 1.6, marginBottom: 12 }}>
+       *       Full Shadow IT Triage (risk scoring, auto-block recommendations) is planned for Phase 2.
+       *     </div>
+       *     {(s.total_discovery_records ?? 0) > 0 && (
+       *       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+       *         <div style={{ background: "var(--red-l)", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
+       *           <span style={{ fontWeight: 700, color: "var(--red-m)", fontSize: 18 }}>
+       *             {(s.total_discovery_records ?? 0) - (s.matched_discovery_count ?? 0)}
+       *           </span>
+       *           <span style={{ color: "var(--red-m)", marginLeft: 6 }}>unmatched discovery records</span>
+       *         </div>
+       *         <button className="btn btn-o btn-sm" style={{ width: "100%", marginTop: 4 }} onClick={() => navigate("/discovery")}>
+       *           View All Discovery Records →
+       *         </button>
+       *       </div>
+       *     )}
+       *   </div>
+       * </div>
+       * ── END PHASE 2: Shadow IT Triage Panel ─────────────────────────────────
+       */}
     </div>
   );
 }
