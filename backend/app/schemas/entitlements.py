@@ -1,25 +1,43 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, date
 from uuid import UUID
 from pydantic import BaseModel
 
 
 class EntitlementOut(BaseModel):
+    # Core IDs
     ent_id: str
     sw_id: str
-    canonical_name: str | None = None   # resolved from software_catalog
     contract_id: UUID | None = None
+    # Resolved display fields
+    canonical_name: str | None = None      # from software_catalog
+    publisher: str | None = None           # from software_catalog
     contract_name: str | None = None
     metric_id: UUID | None = None
+    metric_name: str | None = None         # resolved
     license_type: str
+    # Counts & cost
     entitled_count: int | None = None
     in_use_count: int | None = None
     unit_cost_inr: int | None = None
     annual_cost_inr: int | None = None
-    region_id: UUID | None = None
+    # Contract details (resolved from linked Contract)
+    po_number: str | None = None
+    clm_id: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    vendor_reseller: str | None = None     # vendor name or contract.reseller
+    # Discovery & usage method
     discovery_source_id: UUID | None = None
+    discovery_source_name: str | None = None
     usage_method_id: UUID | None = None
+    usage_method_name: str | None = None
+    # App owner
     app_owner_id: UUID | None = None
+    app_owner_name: str | None = None
+    app_owner_initials: str | None = None
+    # Status & audit
+    region_id: UUID | None = None
     status: str
     last_updated: datetime | None = None
     model_config = {"from_attributes": True}

@@ -26,6 +26,10 @@ async def list_entitlements(
     license_type: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.models.contracts import Contract
+    from app.models.masters import DiscoverySource, UsageUpdateMethod, LicenseMetric, Vendor
+    from app.models.users import User
+
     q = select(Entitlement)
     if sw_id:
         q = q.where(Entitlement.sw_id == sw_id)
@@ -35,22 +39,94 @@ async def list_entitlements(
         q = q.where(Entitlement.license_type == license_type)
     result = await db.execute(q.order_by(Entitlement.ent_id))
     ents = result.scalars().all()
+    if not ents:
+        return []
 
-    # Bulk-load software names (one query, no N+1)
-    if ents:
-        sw_ids = list({e.sw_id for e in ents})
-        sw_rows = await db.execute(
-            select(SoftwareCatalog.sw_id, SoftwareCatalog.canonical_name)
-            .where(SoftwareCatalog.sw_id.in_(sw_ids))
-        )
-        sw_name_map = {r[0]: r[1] for r in sw_rows}
-    else:
-        sw_name_map = {}
+    # ── Bulk-load all related records (7 queries, no N+1) ────────────────────
+    sw_ids       = list({e.sw_id for e in ents})
+    contract_ids = list({e.contract_id for e in ents if e.contract_id})
+    disc_ids     = list({e.discovery_source_id for e in ents if e.discovery_source_id})
+    method_ids   = list({e.usage_method_id for e in ents if e.usage_method_id})
+    owner_ids    = list({e.app_owner_id for e in ents if e.app_owner_id})
+    metric_ids   = list({e.metric_id for e in ents if e.metric_id})
+
+    sw_rows = await db.execute(
+        select(SoftwareCatalog.sw_id, SoftwareCatalog.canonical_name, SoftwareCatalog.publisher)
+        .where(SoftwareCatalog.sw_id.in_(sw_ids))
+    )
+    sw_map = {r[0]: (r[1], r[2]) for r in sw_rows}
+
+    contracts: dict = {}
+    vendor_ids: set = set()
+    if contract_ids:
+        c_rows = await db.execute(select(Contract).where(Contract.id.in_(contract_ids)))
+        for c in c_rows.scalars():
+            contracts[c.id] = c
+            if c.vendor_id:
+                vendor_ids.add(c.vendor_id)
+
+    vendors: dict = {}
+    if vendor_ids:
+        v_rows = await db.execute(select(Vendor).where(Vendor.id.in_(list(vendor_ids))))
+        for v in v_rows.scalars():
+            vendors[v.id] = v.name
+
+    disc_sources: dict = {}
+    if disc_ids:
+        ds_rows = await db.execute(select(DiscoverySource).where(DiscoverySource.id.in_(disc_ids)))
+        for ds in ds_rows.scalars():
+            disc_sources[ds.id] = ds.name
+
+    methods: dict = {}
+    if method_ids:
+        m_rows = await db.execute(select(UsageUpdateMethod).where(UsageUpdateMethod.id.in_(method_ids)))
+        for m in m_rows.scalars():
+            methods[m.id] = m.name
+
+    owners: dict = {}
+    if owner_ids:
+        u_rows = await db.execute(select(User).where(User.id.in_(list(owner_ids))))
+        for u in u_rows.scalars():
+            owners[u.id] = u
+
+    metrics: dict = {}
+    if metric_ids:
+        met_rows = await db.execute(select(LicenseMetric).where(LicenseMetric.id.in_(list(metric_ids))))
+        for m in met_rows.scalars():
+            metrics[m.id] = m.name
+
+    def _initials(name: str | None) -> str:
+        if not name:
+            return "?"
+        return "".join(w[0] for w in name.split() if w)[:2].upper()
 
     out = []
     for e in ents:
         base = EntitlementOut.model_validate(e)
-        out.append(EntitlementOut(**base.model_dump(), canonical_name=sw_name_map.get(e.sw_id)))
+        sw_info = sw_map.get(e.sw_id, (None, None))
+        c = contracts.get(e.contract_id) if e.contract_id else None
+        owner = owners.get(e.app_owner_id) if e.app_owner_id else None
+        vendor_reseller = None
+        if c:
+            if c.vendor_id and c.vendor_id in vendors:
+                vendor_reseller = vendors[c.vendor_id]
+            elif c.reseller:
+                vendor_reseller = c.reseller
+        out.append(EntitlementOut(
+            **base.model_dump(),
+            canonical_name=sw_info[0],
+            publisher=sw_info[1],
+            metric_name=metrics.get(e.metric_id) if e.metric_id else None,
+            po_number=c.po_number if c else None,
+            clm_id=c.clm_id if c else None,
+            start_date=c.start_date if c else None,
+            end_date=c.end_date if c else None,
+            vendor_reseller=vendor_reseller,
+            discovery_source_name=disc_sources.get(e.discovery_source_id) if e.discovery_source_id else None,
+            usage_method_name=methods.get(e.usage_method_id) if e.usage_method_id else None,
+            app_owner_name=owner.full_name if owner else None,
+            app_owner_initials=_initials(owner.full_name if owner else None),
+        ))
     return out
 
 

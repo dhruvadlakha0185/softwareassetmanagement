@@ -5,25 +5,26 @@ import { fetchEntitlements, updateEntitlement, downloadTemplate, uploadUsage } f
 const STATUS_STYLE = {
   ACTIVE:         { bg: "var(--green-l)",  color: "var(--green-m)",  label: "Active" },
   OK:             { bg: "var(--green-l)",  color: "var(--green-m)",  label: "OK" },
-  WATCH:          { bg: "var(--amber-l)", color: "var(--amber-m)", label: "Watch" },
-  OVER_DEPLOYED:  { bg: "#fff0f0",         color: "var(--red-m)",   label: "Over-Deployed" },
-  UNDER_UTILISED: { bg: "var(--blue-l)",   color: "var(--teal-m)",  label: "Under-Utilised" },
-  EXPIRED:        { bg: "var(--bdr)",      color: "var(--tx-m)",    label: "Expired" },
+  WATCH:          { bg: "var(--amber-l)",  color: "var(--amber-m)",  label: "Watch" },
+  OVER_DEPLOYED:  { bg: "#fff0f0",         color: "var(--red-m)",    label: "Over-Deployed" },
+  UNDER_UTILISED: { bg: "var(--blue-l)",   color: "var(--teal-m)",   label: "Under-Utilised" },
+  EXPIRED:        { bg: "var(--bdr)",      color: "var(--tx-m)",     label: "Expired" },
 };
 
 function StatusBadge({ status }) {
   const s = STATUS_STYLE[status];
   if (!s) return <span style={{ fontSize: 11, color: "var(--tx-q)" }}>{status}</span>;
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 3, background: s.bg, color: s.color, whiteSpace: "nowrap" }}>
+    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 3,
+      background: s.bg, color: s.color, whiteSpace: "nowrap" }}>
       {s.label}
     </span>
   );
 }
 
 const TYPE_BADGE = {
-  subscription: <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 3, background: "var(--blue-l)", color: "var(--blue-m)" }}>Sub</span>,
-  perpetual:    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 3, background: "var(--purple-l)", color: "var(--purple-m)" }}>Perp</span>,
+  subscription: <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 3, background: "var(--blue-l)", color: "var(--blue-m)" }}>Subscription</span>,
+  perpetual:    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 3, background: "var(--purple-l)", color: "var(--purple-m)" }}>Perpetual</span>,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -34,16 +35,38 @@ function fmtINR(n) {
   return `₹${n.toLocaleString("en-IN")}`;
 }
 
+function fmtDate(d) {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function fmtDateTime(d) {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function utilPct(entitled, inUse) {
   if (!entitled || entitled === 0) return null;
   return Math.round(((inUse || 0) / entitled) * 100);
 }
 
-function InfoCell({ label, value }) {
+function InfoCell({ label, value, span2 }) {
   return (
-    <div style={{ background: "var(--surf)", borderRadius: 6, padding: "10px 14px" }}>
+    <div style={{ background: "var(--surf)", borderRadius: 6, padding: "10px 14px", gridColumn: span2 ? "1 / -1" : undefined }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 13, fontWeight: 500 }}>{value ?? "—"}</div>
+    </div>
+  );
+}
+
+function Avatar({ initials, name }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ width: 22, height: 22, borderRadius: "50%", background: "var(--navy-mid)", color: "#fff",
+        fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        {initials || "?"}
+      </div>
+      <span style={{ fontSize: 13, fontWeight: 500 }}>{name || "—"}</span>
     </div>
   );
 }
@@ -67,58 +90,84 @@ function DetailDrawer({ ent, onClose, onSave }) {
     }
   };
 
-  const pct = utilPct(ent.entitled_count, ent.in_use_count);
-  const idle = (ent.entitled_count != null && ent.in_use_count != null)
-    ? Math.max(0, ent.entitled_count - ent.in_use_count)
-    : null;
-
   return (
     <div style={{
-      width: 420, flexShrink: 0, borderLeft: "1px solid var(--bdr)",
+      width: 440, flexShrink: 0, borderLeft: "1px solid var(--bdr)",
       background: "var(--card)", display: "flex", flexDirection: "column", overflow: "hidden",
     }}>
       {/* Header */}
-      <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--bdr)", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-        <strong style={{ fontSize: 15 }}>{ent.contract_name || ent.ent_id}</strong>
+      <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--bdr)",
+        display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>{ent.contract_name || ent.ent_id}</div>
+          <div style={{ fontSize: 11, color: "var(--tx-q)", marginTop: 2 }}>{ent.sw_id} · {ent.ent_id}</div>
+        </div>
         <button className="btn btn-o btn-sm" onClick={onClose}>✕ Close</button>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px" }}>
 
-        {/* Tags row */}
+        {/* Status + type tags */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
           <StatusBadge status={ent.status} />
           {TYPE_BADGE[ent.license_type] ?? null}
         </div>
 
-        {/* Identity */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
-          <InfoCell label="ENT_ID" value={<code style={{ fontSize: 12 }}>{ent.ent_id}</code>} />
-          <InfoCell label="SW_ID" value={<code style={{ fontSize: 12 }}>{ent.sw_id}</code>} />
-          <InfoCell label="UTIL %" value={pct != null ? (
-            <span style={{ color: pct > 100 ? "var(--red-m)" : pct > 90 ? "var(--amber-m)" : "var(--green-m)", fontWeight: 700 }}>{pct}%</span>
-          ) : undefined} />
-        </div>
-
-        {/* Counts */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
-          <InfoCell label="ENTITLED" value={ent.entitled_count?.toLocaleString()} />
-          <InfoCell label="IN-USE" value={ent.in_use_count?.toLocaleString()} />
-          <InfoCell label="IDLE" value={idle?.toLocaleString()} />
-        </div>
-
-        {/* Cost */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+        {/* ── License section ─────────────────────────────────────────── */}
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.8,
+          textTransform: "uppercase", marginBottom: 8 }}>License Details</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+          <InfoCell label="PUBLISHER" value={ent.publisher} />
+          <InfoCell label="METRIC" value={ent.metric_name} />
           <InfoCell label="UNIT COST" value={fmtINR(ent.unit_cost_inr)} />
           <InfoCell label="ANNUAL COST" value={fmtINR(ent.annual_cost_inr)} />
         </div>
 
-        {/* Update In-Use */}
+        {/* ── Contract section ─────────────────────────────────────────── */}
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.8,
+          textTransform: "uppercase", marginBottom: 8 }}>Contract</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+          <InfoCell label="PO NUMBER" value={ent.po_number} />
+          <InfoCell label="CLM ID" value={ent.clm_id} />
+          <InfoCell label="START DATE" value={fmtDate(ent.start_date)} />
+          <InfoCell label="EXPIRY DATE" value={fmtDate(ent.end_date)} />
+          <InfoCell label="VENDOR / RESELLER" value={ent.vendor_reseller} span2 />
+        </div>
+
+        {/* ── Discovery section ────────────────────────────────────────── */}
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.8,
+          textTransform: "uppercase", marginBottom: 8 }}>Discovery & Source</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+          <InfoCell label="DISCOVERY SOURCE" value={ent.discovery_source_name} />
+          <InfoCell label="SOURCE MGMT" value={ent.usage_method_name} />
+        </div>
+
+        {/* ── App Owner ────────────────────────────────────────────────── */}
+        {(ent.app_owner_name) && (
+          <>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.8,
+              textTransform: "uppercase", marginBottom: 8 }}>App Owner</div>
+            <div style={{ background: "var(--surf)", borderRadius: 6, padding: "10px 14px", marginBottom: 16 }}>
+              <Avatar initials={ent.app_owner_initials} name={ent.app_owner_name} />
+            </div>
+          </>
+        )}
+
+        {/* ── Update In-Use ────────────────────────────────────────────── */}
         <div style={{ background: "var(--surf)", borderRadius: 6, padding: "12px 14px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.5, marginBottom: 8 }}>UPDATE IN-USE COUNT</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.5, marginBottom: 8 }}>
+            UPDATE IN-USE COUNT
+          </div>
+          <div style={{ fontSize: 12, color: "var(--tx-m)", marginBottom: 8 }}>
+            Current: <strong>{ent.in_use_count?.toLocaleString() ?? "—"}</strong> of{" "}
+            <strong>{ent.entitled_count?.toLocaleString() ?? "—"}</strong> entitled
+          </div>
           <div style={{ display: "flex", gap: 6 }}>
-            <input className="fi2" style={{ flex: 1 }} type="number" min="0" value={editInUse} onChange={e => setEditInUse(e.target.value)} />
-            <button className="btn btn-p btn-sm" onClick={handleSave} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+            <input className="fi2" style={{ flex: 1 }} type="number" min="0"
+              value={editInUse} onChange={e => setEditInUse(e.target.value)} />
+            <button className="btn btn-p btn-sm" onClick={handleSave} disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </button>
           </div>
         </div>
       </div>
@@ -184,8 +233,7 @@ export default function EntitlementsPage() {
     }
   };
 
-  // Client-side search: ENT_ID, SW_ID, software name (canonical_name), contract name
-  // Status + Type filters are server-side; search narrows within those results
+  // Client-side search: ENT_ID, SW_ID, software name, contract name
   const displayRows = search
     ? entitlements.filter(e => {
         const q = search.toLowerCase();
@@ -198,11 +246,23 @@ export default function EntitlementsPage() {
       })
     : entitlements;
 
-  const COLS = ["ENT_ID", "SW_ID", "Contract Name", "Type", "Entitled", "In-Use", "Util %", "Annual Cost (INR)", "Status"];
-  const RIGHT_ALIGN = new Set(["Entitled", "In-Use", "Util %", "Annual Cost (INR)"]);
+  // Table columns
+  const COLS = [
+    { key: "ent_id",         label: "ENT_ID",                  w: 90  },
+    { key: "sw_id",          label: "SW_ID",                   w: 80  },
+    { key: "contract_name",  label: "Contract Software Name",  w: 180 },
+    { key: "canonical_name", label: "Software Name",           w: 160 },
+    { key: "entitled_count", label: "Entitled",                w: 80,  right: true },
+    { key: "in_use_count",   label: "In-Use",                  w: 80,  right: true },
+    { key: "util_pct",       label: "Util %",                  w: 70,  right: true },
+    { key: "annual_cost_inr",label: "Annual Cost (INR)",       w: 130, right: true },
+    { key: "last_updated",   label: "Last Updated",            w: 110 },
+    { key: "status",         label: "Status",                  w: 130 },
+  ];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 52px)", overflow: "hidden", padding: "18px 22px 0" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 52px)",
+      overflow: "hidden", padding: "18px 22px 0" }}>
 
       {/* Header */}
       <div style={{ flexShrink: 0, marginBottom: 14 }}>
@@ -211,15 +271,15 @@ export default function EntitlementsPage() {
         </div>
         <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 2 }}>Entitlement Register</h1>
         <p style={{ fontSize: 12.5, color: "var(--tx-m)" }}>
-          {displayRows.length} entitlement records · license counts and cost tracking
+          {displayRows.length} entitlement records · click any row to view full details
         </p>
       </div>
 
-      {/* Filter + action bar — single line, no wrap */}
+      {/* Filter + action bar */}
       <div style={{ flexShrink: 0, display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
         <input
           className="fi2" style={{ flex: "1 1 200px", minWidth: 160 }}
-          placeholder="Search ENT_ID, SW_ID, contract name…"
+          placeholder="Search ENT_ID, SW_ID, software name, contract…"
           value={search} onChange={e => setSearch(e.target.value)}
         />
         <select className="fi2" style={{ flex: "0 0 150px" }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
@@ -236,12 +296,12 @@ export default function EntitlementsPage() {
           <option value="subscription">Subscription</option>
           <option value="perpetual">Perpetual</option>
         </select>
-        <button className="btn btn-o btn-sm" style={{ flex: "0 0 auto", whiteSpace: "nowrap" }} onClick={handleDownloadTemplate}>
-          ⬇ Download Template
-        </button>
+        <button className="btn btn-o btn-sm" style={{ flex: "0 0 auto", whiteSpace: "nowrap" }}
+          onClick={handleDownloadTemplate}>⬇ Download Template</button>
         <label className="btn btn-p btn-sm" style={{ flex: "0 0 auto", cursor: "pointer", whiteSpace: "nowrap" }}>
           {uploading ? "Uploading…" : "⬆ Upload Usage"}
-          <input ref={fileInputRef} type="file" accept=".xlsx" style={{ display: "none" }} onChange={handleUpload} disabled={uploading} />
+          <input ref={fileInputRef} type="file" accept=".xlsx" style={{ display: "none" }}
+            onChange={handleUpload} disabled={uploading} />
         </label>
       </div>
 
@@ -263,27 +323,30 @@ export default function EntitlementsPage() {
               )}
             </>
           )}
-          <button style={{ float: "right", background: "none", border: "none", cursor: "pointer", fontSize: 12 }} onClick={() => setUploadResult(null)}>✕</button>
+          <button style={{ float: "right", background: "none", border: "none", cursor: "pointer", fontSize: 12 }}
+            onClick={() => setUploadResult(null)}>✕</button>
         </div>
       )}
 
-      {/* Table + Drawer — fills remaining height */}
-      <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden", borderRadius: 8, border: "1px solid var(--bdr)", marginBottom: 12 }}>
+      {/* Table + Drawer */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden",
+        borderRadius: 8, border: "1px solid var(--bdr)", marginBottom: 12 }}>
 
         {/* Scrollable table */}
         <div style={{ flex: 1, minWidth: 0, overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 780 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1000 }}>
             <thead>
               <tr style={{ background: "var(--surf)" }}>
                 {COLS.map(col => (
-                  <th key={col} style={{
+                  <th key={col.key} style={{
                     position: "sticky", top: 0, zIndex: 2,
                     background: "var(--surf)", borderBottom: "2px solid var(--bdr)",
                     padding: "8px 12px", fontSize: 10, fontWeight: 700,
                     color: "var(--tx-q)", textTransform: "uppercase", letterSpacing: 0.5,
-                    whiteSpace: "nowrap", textAlign: RIGHT_ALIGN.has(col) ? "right" : "left",
+                    whiteSpace: "nowrap", textAlign: col.right ? "right" : "left",
+                    minWidth: col.w, width: col.w,
                   }}>
-                    {col}
+                    {col.label}
                   </th>
                 ))}
               </tr>
@@ -301,30 +364,56 @@ export default function EntitlementsPage() {
                 const pct = utilPct(ent.entitled_count, ent.in_use_count);
                 const isSelected = selected?.ent_id === ent.ent_id;
                 return (
-                  <tr
-                    key={ent.ent_id}
-                    style={{ cursor: "pointer", borderBottom: "1px solid var(--bdr)", background: isSelected ? "var(--navy-xlt)" : undefined }}
+                  <tr key={ent.ent_id}
+                    style={{ cursor: "pointer", borderBottom: "1px solid var(--bdr)",
+                      background: isSelected ? "var(--navy-xlt)" : undefined }}
                     onClick={() => setSelected(isSelected ? null : ent)}
                   >
+                    {/* ENT_ID */}
                     <td style={{ padding: "9px 12px" }}>
                       <code style={{ fontSize: 11, background: "var(--bg2)", padding: "2px 5px", borderRadius: 3 }}>{ent.ent_id}</code>
                     </td>
-                    <td style={{ padding: "9px 12px", fontSize: 11.5, color: "var(--tx-m)" }}>{ent.sw_id}</td>
-                    <td style={{ padding: "9px 12px", fontSize: 12, fontWeight: 500 }}>{ent.contract_name || "—"}</td>
-                    <td style={{ padding: "9px 12px" }}>{TYPE_BADGE[ent.license_type] ?? ent.license_type}</td>
-                    <td style={{ padding: "9px 12px", textAlign: "right", fontSize: 12 }}>{ent.entitled_count?.toLocaleString() ?? "—"}</td>
-                    <td style={{ padding: "9px 12px", textAlign: "right", fontSize: 12 }}>{ent.in_use_count?.toLocaleString() ?? "—"}</td>
+                    {/* SW_ID */}
+                    <td style={{ padding: "9px 12px" }}>
+                      <code style={{ fontSize: 11, background: "var(--bg2)", padding: "2px 5px", borderRadius: 3 }}>{ent.sw_id}</code>
+                    </td>
+                    {/* Contract Software Name */}
+                    <td style={{ padding: "9px 12px", fontSize: 12, fontWeight: 500, whiteSpace: "nowrap" }}>
+                      {ent.contract_name || "—"}
+                    </td>
+                    {/* Software Name (canonical) */}
+                    <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--tx-m)", whiteSpace: "nowrap" }}>
+                      {ent.canonical_name || "—"}
+                    </td>
+                    {/* Entitled */}
+                    <td style={{ padding: "9px 12px", textAlign: "right", fontSize: 12 }}>
+                      {ent.entitled_count?.toLocaleString() ?? "—"}
+                    </td>
+                    {/* In-Use */}
+                    <td style={{ padding: "9px 12px", textAlign: "right", fontSize: 12 }}>
+                      {ent.in_use_count?.toLocaleString() ?? "—"}
+                    </td>
+                    {/* Util % */}
                     <td style={{ padding: "9px 12px", textAlign: "right", fontSize: 12 }}>
                       {pct !== null ? (
-                        <span style={{ color: pct > 100 ? "var(--red-m)" : pct > 90 ? "var(--amber-m)" : "var(--tx-m)", fontWeight: pct > 90 ? 700 : 400 }}>
+                        <span style={{ color: pct > 100 ? "var(--red-m)" : pct > 90 ? "var(--amber-m)" : "var(--tx-m)",
+                          fontWeight: pct > 90 ? 700 : 400 }}>
                           {pct}%
                         </span>
                       ) : "—"}
                     </td>
+                    {/* Annual Cost */}
                     <td style={{ padding: "9px 12px", textAlign: "right", fontSize: 12 }}>
                       {ent.annual_cost_inr ? `₹${ent.annual_cost_inr.toLocaleString("en-IN")}` : "—"}
                     </td>
-                    <td style={{ padding: "9px 12px" }}><StatusBadge status={ent.status} /></td>
+                    {/* Last Updated */}
+                    <td style={{ padding: "9px 12px", fontSize: 11, color: "var(--tx-m)", whiteSpace: "nowrap" }}>
+                      {fmtDateTime(ent.last_updated)}
+                    </td>
+                    {/* Status */}
+                    <td style={{ padding: "9px 12px" }}>
+                      <StatusBadge status={ent.status} />
+                    </td>
                   </tr>
                 );
               })}
@@ -332,13 +421,9 @@ export default function EntitlementsPage() {
           </table>
         </div>
 
-        {/* Detail drawer — opens inline to the right */}
+        {/* Detail drawer */}
         {selected && (
-          <DetailDrawer
-            ent={selected}
-            onClose={() => setSelected(null)}
-            onSave={reload}
-          />
+          <DetailDrawer ent={selected} onClose={() => setSelected(null)} onSave={reload} />
         )}
       </div>
     </div>
