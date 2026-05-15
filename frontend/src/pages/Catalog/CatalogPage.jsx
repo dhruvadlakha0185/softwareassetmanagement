@@ -1,37 +1,219 @@
-import { useState, useEffect, useCallback } from "react";
-import { fetchCatalog, createCatalogEntry, deleteCatalogEntry, addAlias, deleteAlias } from "../../api/catalog";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { fetchCatalogRows, fetchCatalogDetail, addAlias, deleteAlias } from "../../api/catalog";
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
 const GXP_BADGE = {
-  "no":          <span className="tag tg3">Non-GxP</span>,
-  "yes_21cfr":   <span className="tag tg1">21 CFR</span>,
-  "yes_annex11": <span className="tag tg1">Annex 11</span>,
-  "yes_both":    <span className="tag tg1">GxP Both</span>,
+  no:          <span style={{ fontSize: 11, color: "var(--tx-q)" }}>—</span>,
+  yes_21cfr:   <span className="tag tb3">21 CFR</span>,
+  yes_annex11: <span className="tag tb3">Annex 11</span>,
+  yes_both:    <span className="tag tb3">GxP Both</span>,
 };
 const RISK_BADGE = {
-  "LOW":    <span className="tag tg2">LOW</span>,
-  "MEDIUM": <span className="tag tg4">MEDIUM</span>,
-  "HIGH":   <span className="tag tgr2">HIGH</span>,
+  LOW:    <span className="tag tg2">LOW</span>,
+  MEDIUM: <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: "var(--amber-l)", color: "var(--amber-m)" }}>MED</span>,
+  HIGH:   <span className="tag tgr2">HIGH</span>,
 };
-const DEPLOY_LABEL = {
-  cloud: "Cloud", on_premise: "On-Premise", desktop_cloud: "Desktop/Cloud", hybrid: "Hybrid",
+const TYPE_BADGE = {
+  subscription: <span className="tag tb3">Subscription</span>,
+  perpetual:    <span className="tag tp2">Perpetual</span>,
 };
+const STATUS_BADGE = {
+  ACTIVE:         <span className="tag tg2">Active</span>,
+  WATCH:          <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: "var(--amber-l)", color: "var(--amber-m)" }}>WATCH</span>,
+  OVER_DEPLOYED:  <span className="tag tgr2">Over-Deployed</span>,
+  UNDER_UTILISED: <span className="tag tg3">Under-Utilised</span>,
+  EXPIRED:        <span className="tag tr2">Expired</span>,
+  OK:             <span className="tag tg2">OK</span>,
+};
+const DEPLOY_LABEL = { cloud: "Cloud", on_premise: "On-Premise", desktop_cloud: "Desktop/Cloud", hybrid: "Hybrid" };
 
-const EMPTY_FORM = {
-  canonical_name: "", publisher: "", gxp_flag: "no",
-  vendor_risk: "LOW", deployment: "cloud", notes: "",
-};
+function fmtINR(n) {
+  if (!n) return "—";
+  if (n >= 10_000_000) return `₹${(n / 10_000_000).toFixed(2)} Cr`;
+  if (n >= 100_000) return `₹${(n / 100_000).toFixed(0)}L`;
+  return `₹${n.toLocaleString("en-IN")}`;
+}
 
+function Avatar({ initials, name }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ width: 22, height: 22, borderRadius: "50%", background: "var(--navy-mid)", color: "#fff", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        {initials || "?"}
+      </div>
+      <span style={{ fontSize: 12 }}>{name || "—"}</span>
+    </div>
+  );
+}
+
+function InfoCell({ label, value, wide }) {
+  return (
+    <div style={{ background: "var(--surf)", borderRadius: 6, padding: "10px 14px", gridColumn: wide ? "1 / -1" : undefined }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 500 }}>{value || "—"}</div>
+    </div>
+  );
+}
+
+// ── Detail Drawer ─────────────────────────────────────────────────────────────
+function DetailDrawer({ swId, onClose }) {
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [aliasInput, setAliasInput] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    fetchCatalogDetail(swId)
+      .then(setDetail)
+      .catch(() => setDetail(null))
+      .finally(() => setLoading(false));
+  }, [swId]);
+
+  const handleAddAlias = async () => {
+    if (!aliasInput.trim()) return;
+    await addAlias(swId, { alias_name: aliasInput.trim(), source_name: "manual" });
+    setAliasInput("");
+    fetchCatalogDetail(swId).then(setDetail);
+  };
+
+  const handleDeleteAlias = async (aliasId) => {
+    await deleteAlias(aliasId);
+    fetchCatalogDetail(swId).then(setDetail);
+  };
+
+  const d = detail;
+  const firstEnt = d?.entitlements?.[0];
+
+  return (
+    <div style={{
+      width: 420, flexShrink: 0, borderLeft: "1px solid var(--bdr)",
+      background: "var(--card)", display: "flex", flexDirection: "column",
+      overflow: "hidden",
+    }}>
+      {/* Header */}
+      <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--bdr)", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+        <strong style={{ fontSize: 15 }}>{loading ? "Loading…" : d?.canonical_name || swId}</strong>
+        <button className="btn btn-o btn-sm" onClick={onClose}>✕ Close</button>
+      </div>
+
+      {loading && <div style={{ padding: 24, color: "var(--tx-q)", fontSize: 13 }}>Loading detail…</div>}
+
+      {!loading && d && (
+        <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px" }}>
+
+          {/* Tags row */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            {GXP_BADGE[d.gxp_flag] !== GXP_BADGE.no && (
+              <span className="tag tg2">{d.gxp_flag === "yes_21cfr" ? "21 CFR" : d.gxp_flag === "yes_annex11" ? "Annex 11" : "GxP Both"}</span>
+            )}
+            {d.gxp_flag === "no" && <span className="tag tg3">Non-GxP</span>}
+            {firstEnt && TYPE_BADGE[firstEnt.license_type]}
+            {RISK_BADGE[d.vendor_risk] && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 3, background: d.vendor_risk === "HIGH" ? "#fff0f0" : d.vendor_risk === "MEDIUM" ? "var(--amber-l)" : "var(--green-l)", color: d.vendor_risk === "HIGH" ? "var(--red-m)" : d.vendor_risk === "MEDIUM" ? "var(--amber-m)" : "var(--green-m)" }}>{d.vendor_risk} Audit Risk</span>}
+            {firstEnt && STATUS_BADGE[firstEnt.status]}
+          </div>
+
+          {/* Info grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+            <InfoCell label="SW_ID" value={<code style={{ fontSize: 13 }}>{d.sw_id.replace("-", "–")}</code>} />
+            <InfoCell label="PUBLISHER" value={d.publisher} />
+            <InfoCell label="CATEGORY" value={d.category_name} />
+            <InfoCell label="SUB-CATEGORY" value={d.sub_category_name} />
+            <InfoCell label="DEPLOYMENT" value={DEPLOY_LABEL[d.deployment] || d.deployment} />
+            <InfoCell label="REGION" value={d.region_name} />
+          </div>
+
+          {/* Entitlement info (first ent) */}
+          {firstEnt && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+              <InfoCell label="CONTRACT NAME" value={firstEnt.contract_name} />
+              <InfoCell label="ENT ID" value={<code style={{ fontSize: 13 }}>{firstEnt.ent_id.replace("-", "–")}</code>} />
+              <InfoCell label="UTIL %" value={firstEnt.util_pct != null ? `${firstEnt.util_pct}%` : "—"} />
+              <InfoCell label="ENTITLED" value={firstEnt.entitled_count?.toLocaleString()} />
+              <InfoCell label="IN-USE" value={firstEnt.in_use_count?.toLocaleString()} />
+              <InfoCell label="EXPIRY" value={firstEnt.end_date || "—"} />
+              <InfoCell label="PO NUMBER" value={firstEnt.po_number} />
+              <InfoCell label="CLM ID" value={firstEnt.clm_id} />
+              <InfoCell label="ANNUAL COST" value={fmtINR(firstEnt.annual_cost_inr)} />
+            </div>
+          )}
+
+          {/* Full-width fields */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 10 }}>
+            {firstEnt?.metric_name && <InfoCell label="METRIC" value={firstEnt.metric_name} />}
+            {d.app_owner_name && (
+              <div style={{ background: "var(--surf)", borderRadius: 6, padding: "10px 14px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.5, marginBottom: 8 }}>APP OWNER</div>
+                <Avatar initials={d.app_owner_initials} name={d.app_owner_name} />
+              </div>
+            )}
+            {d.notes && <InfoCell label="NOTES / BUSINESS DESCRIPTION" value={d.notes} />}
+            {d.onboarded_date && (
+              <InfoCell label="ONBOARDED DATE" value={new Date(d.onboarded_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} />
+            )}
+          </div>
+
+          {/* Contract history */}
+          {d.entitlements?.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.5, textTransform: "uppercase", margin: "14px 0 10px" }}>
+                Contract History (S3 Archive)
+              </div>
+              {d.entitlements.map(ent => (
+                <div key={ent.ent_id} style={{ display: "flex", gap: 12, marginBottom: 12, padding: "10px 12px", background: "var(--surf)", borderRadius: 6 }}>
+                  <div style={{ fontSize: 24, flexShrink: 0 }}>{ent.is_archived ? "📦" : "📄"}</div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 3 }}>
+                      {ent.contract_name || `${d.canonical_name} — Contract`}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--tx-m)" }}>
+                      {ent.start_date && `Start: ${ent.start_date}`}
+                      {ent.end_date && ` · Expiry: ${ent.end_date}`}
+                      {" · "}
+                      {ent.is_archived ? (
+                        <span style={{ color: "var(--tx-q)", fontWeight: 600 }}>Archived</span>
+                      ) : (
+                        <span style={{ color: "var(--teal-m)", fontWeight: 600 }}>Active</span>
+                      )}
+                    </div>
+                    {ent.is_archived && ent.archived_path && (
+                      <div style={{ fontSize: 11, color: "var(--tx-q)", marginTop: 2 }}>
+                        Archived to S3 on renewal · Access via AWS Console
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* Aliases */}
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--tx-q)", letterSpacing: 0.5, textTransform: "uppercase", margin: "14px 0 8px" }}>
+            Aliases ({d.aliases?.length || 0})
+          </div>
+          {d.aliases?.map(a => (
+            <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, padding: "4px 0", borderBottom: "1px solid var(--bdr)" }}>
+              <span>{a.alias_name}</span>
+              <button style={{ background: "none", border: "none", color: "var(--red-m)", cursor: "pointer", fontSize: 12 }} onClick={() => handleDeleteAlias(a.id)}>✕</button>
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <input className="fi2" style={{ flex: 1, fontSize: 12 }} placeholder="Add alias…" value={aliasInput} onChange={e => setAliasInput(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAddAlias()} />
+            <button className="btn btn-p btn-sm" onClick={handleAddAlias}>+</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function CatalogPage() {
-  const [catalog, setCatalog] = useState([]);
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterGxp, setFilterGxp] = useState("");
   const [filterRisk, setFilterRisk] = useState("");
-
-  const [selected, setSelected] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [aliasInput, setAliasInput] = useState("");
+  const [selectedSwId, setSelectedSwId] = useState(null);
+  const searchRef = useRef(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -40,213 +222,153 @@ export default function CatalogPage() {
       if (search) params.search = search;
       if (filterGxp) params.gxp_flag = filterGxp;
       if (filterRisk) params.vendor_risk = filterRisk;
-      const data = await fetchCatalog(params);
-      setCatalog(data);
-      // Refresh selected entry if visible
-      if (selected) {
-        const refreshed = data.find(s => s.sw_id === selected.sw_id);
-        setSelected(refreshed || null);
-      }
+      setRows(await fetchCatalogRows(params));
     } finally {
       setLoading(false);
     }
-  }, [search, filterGxp, filterRisk]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search, filterGxp, filterRisk]);
 
   useEffect(() => { reload(); }, [reload]);
 
-  const handleAdd = async () => {
-    if (!form.canonical_name.trim()) return;
-    await createCatalogEntry(form);
-    setForm(EMPTY_FORM);
-    setShowForm(false);
-    reload();
-  };
-
-  const handleDelete = async (swId) => {
-    if (!window.confirm(`Delete ${swId}? This cannot be undone.`)) return;
-    await deleteCatalogEntry(swId);
-    if (selected?.sw_id === swId) setSelected(null);
-    reload();
-  };
-
-  const handleAddAlias = async () => {
-    if (!aliasInput.trim() || !selected) return;
-    await addAlias(selected.sw_id, { alias_name: aliasInput.trim(), source_name: "manual" });
-    setAliasInput("");
-    reload();
-  };
-
-  const handleDeleteAlias = async (aliasId) => {
-    await deleteAlias(aliasId);
-    reload();
-  };
+  const COLS = [
+    { key: "sw_id",           label: "SW_ID",          width: 80 },
+    { key: "canonical_name",  label: "Software Name",  width: 180 },
+    { key: "publisher",       label: "Publisher",      width: 130 },
+    { key: "category_name",   label: "Category",       width: 150 },
+    { key: "sub_category_name",label:"Sub-Category",   width: 120 },
+    { key: "gxp_flag",        label: "GxP",            width: 80  },
+    { key: "vendor_risk",     label: "Vendor Risk",    width: 90  },
+    { key: "license_type",    label: "License Model",  width: 120 },
+    { key: "metric_name",     label: "Metric",         width: 100 },
+    { key: "deployment",      label: "Deploy",         width: 110 },
+    { key: "region_name",     label: "Region",         width: 80  },
+    { key: "app_owner_name",  label: "App Owner",      width: 130 },
+    { key: "onboarded_date",  label: "Onboarded Date", width: 110 },
+    { key: "notes",           label: "Notes",          width: 200 },
+    { key: "action",          label: "Action",         width: 80  },
+  ];
 
   return (
-    <div className="page" style={{ display: "flex", gap: 0, paddingBottom: 0 }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="ph">
-          <div className="bc">SAM Platform <span>›</span> Software Catalog</div>
-          <h1>Software Catalog</h1>
-          <p>{catalog.length} software titles · canonical master list</p>
+    <div style={{ display: "flex", height: "calc(100vh - 52px)", overflow: "hidden" }}>
+
+      {/* ── Main panel ──────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", padding: "18px 22px 0" }}>
+
+        {/* Header */}
+        <div style={{ flexShrink: 0, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "var(--tx-q)", marginBottom: 4 }}>SAM Platform <span style={{ color: "var(--tx-m)" }}>›</span> Software Catalog</div>
+          <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 2 }}>Software Catalog</h1>
+          <p style={{ fontSize: 12.5, color: "var(--tx-m)" }}>{rows.length} software titles · canonical master list · onboarded by COE Admin</p>
         </div>
 
-        {/* Filters */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        {/* Filter + action bar */}
+        <div style={{ flexShrink: 0, display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
           <input
-            className="fi2" style={{ flex: 1, minWidth: 180 }}
-            placeholder="Search by name…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
+            ref={searchRef}
+            className="fi2" style={{ flex: 1, minWidth: 200 }}
+            placeholder="Search SW_ID, software name, publisher…"
+            value={search} onChange={e => setSearch(e.target.value)}
           />
           <select className="fi2" value={filterGxp} onChange={e => setFilterGxp(e.target.value)}>
-            <option value="">All GxP</option>
+            <option value="">All (GxP)</option>
             <option value="no">Non-GxP</option>
             <option value="yes_21cfr">21 CFR</option>
             <option value="yes_annex11">Annex 11</option>
             <option value="yes_both">GxP Both</option>
           </select>
           <select className="fi2" value={filterRisk} onChange={e => setFilterRisk(e.target.value)}>
-            <option value="">All Risk</option>
+            <option value="">All Vendor Risk</option>
             <option value="LOW">LOW</option>
             <option value="MEDIUM">MEDIUM</option>
             <option value="HIGH">HIGH</option>
           </select>
-          <button className="btn btn-p btn-sm" onClick={() => setShowForm(v => !v)}>+ Add Software</button>
+          <button className="btn btn-p btn-sm" onClick={() => window.location.href = "/onboarding"} style={{ background: "var(--navy-mid)" }}>
+            + Onboard New
+          </button>
         </div>
 
-        {showForm && (
-          <div style={{ background: "var(--surf)", border: "1px solid var(--bdr)", borderRadius: 8, padding: 14, marginBottom: 14 }}>
-            <div className="fr3">
-              <div className="fg">
-                <label className="fl">Canonical Name <span className="req">*</span></label>
-                <input className="fi2" value={form.canonical_name} onChange={e => setForm(f => ({ ...f, canonical_name: e.target.value }))} placeholder="e.g. Microsoft 365" />
-              </div>
-              <div className="fg">
-                <label className="fl">Publisher</label>
-                <input className="fi2" value={form.publisher} onChange={e => setForm(f => ({ ...f, publisher: e.target.value }))} placeholder="e.g. Microsoft" />
-              </div>
-              <div className="fg">
-                <label className="fl">GxP Flag</label>
-                <select className="fi2" value={form.gxp_flag} onChange={e => setForm(f => ({ ...f, gxp_flag: e.target.value }))}>
-                  <option value="no">Non-GxP</option>
-                  <option value="yes_21cfr">21 CFR Part 11</option>
-                  <option value="yes_annex11">Annex 11</option>
-                  <option value="yes_both">Both</option>
-                </select>
-              </div>
-            </div>
-            <div className="fr3">
-              <div className="fg">
-                <label className="fl">Vendor Risk</label>
-                <select className="fi2" value={form.vendor_risk} onChange={e => setForm(f => ({ ...f, vendor_risk: e.target.value }))}>
-                  <option value="LOW">LOW</option>
-                  <option value="MEDIUM">MEDIUM</option>
-                  <option value="HIGH">HIGH</option>
-                </select>
-              </div>
-              <div className="fg">
-                <label className="fl">Deployment</label>
-                <select className="fi2" value={form.deployment} onChange={e => setForm(f => ({ ...f, deployment: e.target.value }))}>
-                  <option value="cloud">Cloud</option>
-                  <option value="on_premise">On-Premise</option>
-                  <option value="desktop_cloud">Desktop / Cloud</option>
-                  <option value="hybrid">Hybrid</option>
-                </select>
-              </div>
-              <div className="fg">
-                <label className="fl">Notes</label>
-                <input className="fi2" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional notes" />
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 7, marginTop: 8 }}>
-              <button className="btn btn-p btn-sm" onClick={handleAdd}>Save</button>
-              <button className="btn btn-o btn-sm" onClick={() => setShowForm(false)}>Cancel</button>
-            </div>
-          </div>
-        )}
-
-        <div className="tw">
-          <table>
+        {/* Table — scrollable section */}
+        <div style={{ flex: 1, overflow: "auto", borderRadius: 8, border: "1px solid var(--bdr)", marginBottom: 12 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1400 }}>
             <thead>
-              <tr>
-                <th>SW_ID</th><th>Canonical Name</th><th>Publisher</th>
-                <th>GxP</th><th>Vendor Risk</th><th>Deployment</th><th>Actions</th>
+              <tr style={{ background: "var(--surf)" }}>
+                {COLS.map(col => (
+                  <th key={col.key} style={{
+                    position: "sticky", top: 0, zIndex: 2,
+                    background: "var(--surf)", borderBottom: "2px solid var(--bdr)",
+                    padding: "8px 12px", fontSize: 10, fontWeight: 700,
+                    color: "var(--tx-q)", textTransform: "uppercase", letterSpacing: 0.5,
+                    whiteSpace: "nowrap", textAlign: "left",
+                    minWidth: col.width, width: col.width,
+                  }}>
+                    {col.label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan="7" style={{ textAlign: "center", padding: 18, color: "var(--tx-q)" }}>Loading…</td></tr>}
-              {catalog.map(sw => (
+              {loading && (
+                <tr><td colSpan={COLS.length} style={{ textAlign: "center", padding: 24, color: "var(--tx-q)" }}>Loading…</td></tr>
+              )}
+              {!loading && rows.length === 0 && (
+                <tr><td colSpan={COLS.length} style={{ textAlign: "center", padding: 24, color: "var(--tx-q)" }}>No software entries found.</td></tr>
+              )}
+              {rows.map(row => (
                 <tr
-                  key={sw.sw_id}
-                  style={{ cursor: "pointer", background: selected?.sw_id === sw.sw_id ? "var(--navy-xlt)" : undefined }}
-                  onClick={() => setSelected(selected?.sw_id === sw.sw_id ? null : sw)}
+                  key={row.sw_id}
+                  style={{ borderBottom: "1px solid var(--bdr)", background: selectedSwId === row.sw_id ? "var(--navy-xlt)" : undefined }}
                 >
-                  <td><code style={{ fontSize: 11, background: "var(--bg2)", padding: "2px 5px", borderRadius: 3 }}>{sw.sw_id}</code></td>
-                  <td><strong>{sw.canonical_name}</strong></td>
-                  <td style={{ fontSize: 11.5, color: "var(--tx-m)" }}>{sw.publisher || "—"}</td>
-                  <td>{GXP_BADGE[sw.gxp_flag] ?? sw.gxp_flag}</td>
-                  <td>{RISK_BADGE[sw.vendor_risk] ?? sw.vendor_risk}</td>
-                  <td style={{ fontSize: 11, color: "var(--tx-m)" }}>{DEPLOY_LABEL[sw.deployment] || sw.deployment}</td>
-                  <td>
-                    <div className="crud-actions" onClick={e => e.stopPropagation()}>
-                      <button className="btn btn-d btn-sm" onClick={() => handleDelete(sw.sw_id)}>Delete</button>
+                  <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
+                    <code style={{ fontSize: 11, background: "var(--bg2)", padding: "2px 5px", borderRadius: 3 }}>{row.sw_id}</code>
+                  </td>
+                  <td style={{ padding: "9px 12px" }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{row.canonical_name}</div>
+                  </td>
+                  <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--tx-m)", whiteSpace: "nowrap" }}>{row.publisher || "—"}</td>
+                  <td style={{ padding: "9px 12px", fontSize: 12, whiteSpace: "nowrap" }}>{row.category_name || "—"}</td>
+                  <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--tx-m)", whiteSpace: "nowrap" }}>{row.sub_category_name || "—"}</td>
+                  <td style={{ padding: "9px 12px" }}>{GXP_BADGE[row.gxp_flag] ?? "—"}</td>
+                  <td style={{ padding: "9px 12px" }}>{RISK_BADGE[row.vendor_risk] ?? row.vendor_risk}</td>
+                  <td style={{ padding: "9px 12px" }}>{row.license_type ? TYPE_BADGE[row.license_type] : <span style={{ color: "var(--tx-q)", fontSize: 11 }}>—</span>}</td>
+                  <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--tx-m)", whiteSpace: "nowrap" }}>{row.metric_name || "—"}</td>
+                  <td style={{ padding: "9px 12px" }}>
+                    {row.deployment ? (
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 7px", borderRadius: 10, background: "var(--blue-l)", color: "var(--blue-m)" }}>
+                        {DEPLOY_LABEL[row.deployment] || row.deployment}
+                      </span>
+                    ) : "—"}
+                  </td>
+                  <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--tx-m)", whiteSpace: "nowrap" }}>{row.region_name || "—"}</td>
+                  <td style={{ padding: "9px 12px" }}>
+                    {row.app_owner_name ? <Avatar initials={row.app_owner_initials} name={row.app_owner_name} /> : <span style={{ color: "var(--tx-q)", fontSize: 11 }}>—</span>}
+                  </td>
+                  <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--tx-m)", whiteSpace: "nowrap" }}>
+                    {row.onboarded_date ? new Date(row.onboarded_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                  </td>
+                  <td style={{ padding: "9px 12px", fontSize: 11.5, color: "var(--tx-m)", maxWidth: 200 }}>
+                    <div style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                      {row.notes || "—"}
                     </div>
+                  </td>
+                  <td style={{ padding: "9px 12px" }}>
+                    <button
+                      className="btn btn-o btn-sm"
+                      style={{ whiteSpace: "nowrap" }}
+                      onClick={() => setSelectedSwId(selectedSwId === row.sw_id ? null : row.sw_id)}
+                    >
+                      View →
+                    </button>
                   </td>
                 </tr>
               ))}
-              {!loading && catalog.length === 0 && (
-                <tr><td colSpan="7" style={{ textAlign: "center", padding: 18, color: "var(--tx-q)" }}>No software entries. Add one above.</td></tr>
-              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Detail drawer */}
-      {selected && (
-        <div style={{
-          width: 320, flexShrink: 0, borderLeft: "1px solid var(--bdr)",
-          background: "var(--surf)", padding: "20px 18px", overflowY: "auto",
-          position: "sticky", top: 0, alignSelf: "flex-start", maxHeight: "100vh",
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <strong style={{ fontSize: 13 }}>{selected.sw_id}</strong>
-            <button className="btn btn-o btn-sm" onClick={() => setSelected(null)}>✕</button>
-          </div>
-          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{selected.canonical_name}</div>
-          {selected.publisher && <div style={{ fontSize: 12, color: "var(--tx-m)", marginBottom: 12 }}>{selected.publisher}</div>}
-
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
-            {GXP_BADGE[selected.gxp_flag]}
-            {RISK_BADGE[selected.vendor_risk]}
-            <span className="tag tg3">{DEPLOY_LABEL[selected.deployment] || selected.deployment}</span>
-          </div>
-
-          {selected.notes && (
-            <div style={{ fontSize: 12, color: "var(--tx-m)", marginBottom: 14, lineHeight: 1.5 }}>{selected.notes}</div>
-          )}
-
-          <div className="sdiv" style={{ fontSize: 11, marginBottom: 8 }}>Aliases ({selected.aliases?.length || 0})</div>
-          {selected.aliases?.map(a => (
-            <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, padding: "3px 0", borderBottom: "1px solid var(--bdr)" }}>
-              <span>{a.alias_name}</span>
-              <button
-                style={{ background: "none", border: "none", color: "var(--red)", cursor: "pointer", fontSize: 12 }}
-                onClick={() => handleDeleteAlias(a.id)}
-              >✕</button>
-            </div>
-          ))}
-          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-            <input
-              className="fi2" style={{ flex: 1 }}
-              placeholder="Add alias…"
-              value={aliasInput}
-              onChange={e => setAliasInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleAddAlias()}
-            />
-            <button className="btn btn-p btn-sm" onClick={handleAddAlias}>+</button>
-          </div>
-        </div>
+      {/* ── Detail drawer ────────────────────────────────────────────────── */}
+      {selectedSwId && (
+        <DetailDrawer swId={selectedSwId} onClose={() => setSelectedSwId(null)} />
       )}
     </div>
   );

@@ -5,6 +5,12 @@ const base = "/catalog";
 export const fetchCatalog = (params = {}) =>
   client.get(base, { params }).then(r => r.data);
 
+export const fetchCatalogRows = (params = {}) =>
+  client.get(`${base}/rows`, { params }).then(r => r.data);
+
+export const fetchCatalogDetail = (swId) =>
+  client.get(`${base}/${swId}/detail`).then(r => r.data);
+
 export const fetchCatalogBrief = () =>
   client.get(`${base}/brief`).then(r => r.data);
 
