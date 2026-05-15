@@ -2,10 +2,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchDiscovery, ingestDiscovery } from "../../api/discovery";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const MATCH_BADGE = {
-  matched:   <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 3, background: "var(--green-l)", color: "var(--green-m)" }}>Matched</span>,
-  unmatched: <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 3, background: "#fff0f0", color: "var(--red-m)" }}>Unmatched</span>,
-};
 
 const TYPE_BADGE = {
   endpoint: <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 3, background: "var(--blue-l)", color: "var(--blue-m)" }}>Endpoint</span>,
@@ -22,7 +18,6 @@ export default function DiscoveryPage() {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [filterMatched, setFilterMatched] = useState("");
   const [ingestResult, setIngestResult] = useState(null);
   const [ingesting, setIngesting] = useState(false);
   const fileInputRef = useRef(null);
@@ -30,14 +25,11 @@ export default function DiscoveryPage() {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const params = {};
-      if (filterMatched === "true")  params.matched = true;
-      if (filterMatched === "false") params.matched = false;
-      setRecords(await fetchDiscovery(params));
+      setRecords(await fetchDiscovery());
     } finally {
       setLoading(false);
     }
-  }, [filterMatched]);
+  }, []);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -72,8 +64,6 @@ export default function DiscoveryPage() {
       })
     : records;
 
-  const matchedCount   = records.filter(r => r.sw_id).length;
-  const unmatchedCount = records.filter(r => !r.sw_id).length;
 
   const COLS = [
     { key: "disc_id",           label: "DISC_ID",                w: 80  },
@@ -101,11 +91,7 @@ export default function DiscoveryPage() {
         </div>
         <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 2 }}>License Discovery</h1>
         <p style={{ fontSize: 12.5, color: "var(--tx-m)" }}>
-          {displayRows.length} records
-          <span style={{ margin: "0 6px", color: "var(--bdr-s)" }}>·</span>
-          <span style={{ color: "var(--green-m)", fontWeight: 600 }}>{matchedCount} matched</span>
-          <span style={{ margin: "0 6px", color: "var(--bdr-s)" }}>·</span>
-          <span style={{ color: "var(--red-m)", fontWeight: 600 }}>{unmatchedCount} unmatched</span>
+          {displayRows.length} discovery records · device-level software usage data
         </p>
       </div>
 
@@ -140,11 +126,6 @@ export default function DiscoveryPage() {
           placeholder="Search DISC_ID, software name, device ID…"
           value={search} onChange={e => setSearch(e.target.value)}
         />
-        <select className="fi2" style={{ flex: "0 0 150px" }} value={filterMatched} onChange={e => setFilterMatched(e.target.value)}>
-          <option value="">All Records</option>
-          <option value="true">Matched Only</option>
-          <option value="false">Unmatched Only</option>
-        </select>
         <label className="btn btn-p btn-sm" style={{ flex: "0 0 auto", cursor: "pointer", whiteSpace: "nowrap" }}>
           {ingesting ? "Ingesting…" : "⬆ Upload CSV / XLSX"}
           <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }}
@@ -164,9 +145,7 @@ export default function DiscoveryPage() {
             <span style={{ color: "var(--red-m)" }}>{ingestResult.error}</span>
           ) : (
             <>
-              <strong>Ingest complete</strong> — {ingestResult.inserted} records inserted ·{" "}
-              <span style={{ color: "var(--green-m)", fontWeight: 600 }}>{ingestResult.matched} matched</span> ·{" "}
-              <span style={{ color: "var(--amber-m)" }}>{ingestResult.unmatched} unmatched</span>
+              <strong>Ingest complete</strong> — {ingestResult.inserted} records inserted
               {ingestResult.errors?.length > 0 && (
                 <div style={{ color: "var(--amber-m)", marginTop: 4 }}>{ingestResult.errors.join("; ")}</div>
               )}
@@ -214,14 +193,11 @@ export default function DiscoveryPage() {
                 </td>
                 {/* Contract Software Name */}
                 <td style={{ padding: "9px 12px", fontSize: 12, fontWeight: 500 }}>{rec.contract_name || "—"}</td>
-                {/* SW_ID + match badge */}
+                {/* SW_ID */}
                 <td style={{ padding: "9px 12px" }}>
-                  {rec.sw_id ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      {MATCH_BADGE.matched}
-                      <code style={{ fontSize: 10, color: "var(--tx-m)" }}>{rec.sw_id}</code>
-                    </div>
-                  ) : MATCH_BADGE.unmatched}
+                  {rec.sw_id
+                    ? <code style={{ fontSize: 11, background: "var(--bg2)", padding: "2px 5px", borderRadius: 3 }}>{rec.sw_id}</code>
+                    : <span style={{ color: "var(--tx-q)", fontSize: 11 }}>—</span>}
                 </td>
                 {/* Canonical name */}
                 <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--tx-m)", whiteSpace: "nowrap" }}>
