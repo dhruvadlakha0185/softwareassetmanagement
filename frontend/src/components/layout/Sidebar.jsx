@@ -46,7 +46,7 @@ export default function Sidebar() {
 
   // Derive each badge — return null to hide the badge entirely
   const costOptBadge   = formatCr(sc.total_est_saving_inr);
-  const entBadge       = s.expiring_30d_count > 0 ? `${s.expiring_30d_count} Exp.` : null;
+  const entBadge       = null;
   const reconBadge     = s.over_deployed_count > 0 ? `${s.over_deployed_count} Risk` : null;
   const alertBadge     = s.unread_alerts_count > 0 ? `${s.unread_alerts_count}` : null;
 
