@@ -47,17 +47,19 @@ async def download_template(db: AsyncSession = Depends(get_db)):
         sw = await db.get(SoftwareCatalog, ent.sw_id)
         metric = await db.get(LicenseMetric, ent.metric_id) if ent.metric_id else None
         rows.append({
-            "ent_id": ent.ent_id,
-            "sw_id": ent.sw_id,
-            "canonical_name": sw.canonical_name if sw else "",
-            "contract_name": ent.contract_name or "",
-            "license_type": ent.license_type,
-            "metric_name": metric.name if metric else "",
-            "entitled_count": ent.entitled_count,
-            "in_use_count": ent.in_use_count,
-            "unit_cost_inr": ent.unit_cost_inr,
+            "ent_id":          ent.ent_id,
+            "sw_id":           ent.sw_id,
+            "canonical_name":  sw.canonical_name if sw else "",
+            "metric_name":     metric.name if metric else "",
+            "status":          ent.status,
+            "contract_name":   ent.contract_name or "",
+            "license_type":    ent.license_type,
+            "entitled_count":  ent.entitled_count,
+            "unit_cost_inr":   ent.unit_cost_inr,
             "annual_cost_inr": ent.annual_cost_inr,
-            "notes": None,
+            "po_number":       ent.po_number,
+            "in_use_count":    ent.in_use_count,
+            "notes":           None,
         })
 
     xlsx_bytes = generate_template(rows)
