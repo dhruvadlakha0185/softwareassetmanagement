@@ -16,6 +16,12 @@ class ReconResultOut(BaseModel):
     id: UUID
     run_id: UUID
     ent_id: str
+    sw_id: str | None = None
+    canonical_name: str | None = None
+    publisher: str | None = None
+    category_name: str | None = None
+    metric_name: str | None = None
+    region_name: str | None = None
     entitled: float | None = None
     in_use: float | None = None
     util_pct: float | None = None
