@@ -388,7 +388,7 @@ export default function EntitlementsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `entitlements_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.download = "DRL_LicenseUsage_Template_v3.xlsx";
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -452,6 +452,46 @@ export default function EntitlementsPage() {
         </p>
       </div>
 
+      {/* ── Template guidance banner ─────────────────────────────────────── */}
+      <div style={{
+        flexShrink: 0, marginBottom: 12,
+        display: "flex", alignItems: "center", gap: 14,
+        background: "#EFF6FF", border: "1.5px dashed #93C5FD", borderRadius: 8,
+        padding: "12px 16px",
+      }}>
+        {/* File icon */}
+        <div style={{ flexShrink: 0, width: 36, height: 36, borderRadius: 6,
+          background: "#DBEAFE", display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 18 }}>
+          📄
+        </div>
+        {/* Text */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#1E40AF", marginBottom: 3 }}>
+            Template: DRL_LicenseUsage_Template_v3.xlsx
+            <span style={{ fontWeight: 400, color: "#3B82F6", marginLeft: 8 }}>
+              — Tab A: Entitlement Update · Tab B: License Discovery
+            </span>
+          </div>
+          <div style={{ fontSize: 11.5, color: "#3B82F6" }}>
+            Download → fill both tabs → upload. Platform auto-reconciles.
+            Previous upload moved to S3 Archive.
+            <span style={{ marginLeft: 8, color: "#93C5FD" }}>Supports: XLSX · XLS · Max 25MB</span>
+          </div>
+        </div>
+        {/* Download button */}
+        <button
+          style={{
+            flexShrink: 0, background: "var(--navy-mid)", color: "#fff",
+            border: "none", borderRadius: 6, padding: "8px 18px",
+            fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+          }}
+          onClick={handleDownloadTemplate}
+        >
+          ↓ Download
+        </button>
+      </div>
+
       {/* Filter + action bar */}
       <div style={{ flexShrink: 0, display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
         <input
@@ -473,8 +513,6 @@ export default function EntitlementsPage() {
           <option value="subscription">Subscription</option>
           <option value="perpetual">Perpetual</option>
         </select>
-        <button className="btn btn-o btn-sm" style={{ flex: "0 0 auto", whiteSpace: "nowrap" }}
-          onClick={handleDownloadTemplate}>⬇ Download Template</button>
         <label className="btn btn-p btn-sm" style={{ flex: "0 0 auto", cursor: "pointer", whiteSpace: "nowrap" }}>
           {uploading ? "Uploading…" : "⬆ Upload Usage"}
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }}
