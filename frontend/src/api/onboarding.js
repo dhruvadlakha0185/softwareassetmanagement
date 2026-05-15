@@ -27,3 +27,12 @@ export const deleteDraft = (id) =>
 
 export const publishOnboarding = (data) =>
   client.post(`${base}/publish`, data).then(r => r.data);
+
+export const downloadBulkTemplate = () =>
+  client.get(`${base}/bulk-template`, { responseType: "blob" }).then(r => r.data);
+
+export const bulkOnboard = (file) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return client.post(`${base}/bulk`, fd).then(r => r.data);
+};
