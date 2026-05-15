@@ -197,30 +197,65 @@ async def upload_usage(
     tab_a_count = 0
     tab_b_count = 0
 
+    # ── Lookup helper: ENT_ID primary, SW_ID fallback ────────────────────────
+    async def _find_ent(ent_id: str | None, sw_id: str | None, ctx: str):
+        """
+        Resolve entitlement row by ENT_ID (primary) or SW_ID (fallback).
+        - ENT_ID provided → direct get; if SW_ID also given, validates the match.
+        - ENT_ID blank, SW_ID provided → lookup by SW_ID (error if multiple).
+        - Both blank → returns None silently (blank row).
+        """
+        ent_id = (ent_id or "").strip()
+        sw_id  = (sw_id  or "").strip()
+
+        if ent_id:
+            ent = await db.get(Entitlement, ent_id)
+            if not ent:
+                errors.append(f"{ctx}: ENT_ID {ent_id!r} not found — skipped")
+                return None
+            if sw_id and ent.sw_id != sw_id:
+                errors.append(f"{ctx}: ENT_ID {ent_id} belongs to SW_ID {ent.sw_id}, not {sw_id!r} — skipped")
+                return None
+            return ent
+
+        if sw_id:
+            res = await db.execute(select(Entitlement).where(Entitlement.sw_id == sw_id))
+            matches = res.scalars().all()
+            if not matches:
+                errors.append(f"{ctx}: SW_ID {sw_id!r} has no entitlements — skipped")
+                return None
+            if len(matches) > 1:
+                errors.append(f"{ctx}: SW_ID {sw_id!r} has {len(matches)} entitlements — provide ENT_ID to disambiguate")
+                return None
+            return matches[0]
+
+        return None  # blank row, skip silently
+
+    # Fields that identify the row — never written back to the model
+    _LOOKUP_FIELDS = {"ent_id", "sw_id"}
+
     # Parse Tab A — applies all non-null editable fields
     try:
         tab_a_rows = parse_tab_a(data)
         for row in tab_a_rows:
-            ent = await db.get(Entitlement, row["ent_id"])
+            ent = await _find_ent(row.get("ent_id"), row.get("sw_id"), "Tab A")
             if not ent:
-                errors.append(f"Tab A: ENT_ID {row['ent_id']} not found — skipped")
                 continue
             for k, v in row.items():
-                if k != "ent_id" and v is not None:
+                if k not in _LOOKUP_FIELDS and v is not None:
                     setattr(ent, k, v)
             tab_a_count += 1
     except Exception as e:
         errors.append(f"Tab A parse error: {e}")
 
-    # Parse Tab B
+    # Parse Tab B — updates in_use_count only
     try:
         tab_b_rows = parse_tab_b(data)
         for row in tab_b_rows:
-            ent = await db.get(Entitlement, row["ent_id"])
+            ent = await _find_ent(row.get("ent_id"), row.get("sw_id"), "Tab B")
             if not ent:
-                errors.append(f"Tab B: ENT_ID {row['ent_id']} not found — skipped")
                 continue
-            if row["in_use_count"] is not None:
+            if row.get("in_use_count") is not None:
                 ent.in_use_count = row["in_use_count"]
             tab_b_count += 1
     except Exception as e:

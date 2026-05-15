@@ -133,6 +133,7 @@ def parse_tab_a(data: bytes) -> list[dict]:
             license_type = None  # ignore invalid values
         result.append({
             "ent_id":          str(row[0]).strip(),
+            "sw_id":           str(row[1]).strip() if row[1] else None,   # for lookup / validation
             "contract_name":   str(row[6]).strip() if row[6] else None,
             "license_type":    license_type,
             "entitled_count":  int(row[8]) if row[8] is not None else None,
@@ -158,10 +159,11 @@ def parse_tab_b(data: bytes) -> list[dict]:
         if not row or not row[0]:
             continue
         result.append({
-            "ent_id": str(row[0]).strip(),
-            "in_use_count": int(row[3]) if row[3] is not None else None,
+            "ent_id":           str(row[0]).strip(),
+            "sw_id":            str(row[1]).strip() if row[1] else None,   # for lookup / validation
+            "in_use_count":     int(row[3]) if row[3] is not None else None,
             "reporting_period": str(row[4]).strip() if row[4] else None,
-            "reason": str(row[5]).strip() if row[5] else None,
+            "reason":           str(row[5]).strip() if row[5] else None,
         })
     return result
 
