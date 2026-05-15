@@ -2,7 +2,7 @@ from uuid import UUID
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from app.core.database import get_db
 from app.api.deps import require_role
 from app.models.catalog import SoftwareCatalog, SoftwareAlias
@@ -92,7 +92,12 @@ async def list_catalog_rows(
 ):
     q = select(SoftwareCatalog)
     if search:
-        q = q.where(SoftwareCatalog.canonical_name.ilike(f"%{search}%"))
+        t = f"%{search}%"
+        q = q.where(or_(
+            SoftwareCatalog.sw_id.ilike(t),
+            SoftwareCatalog.canonical_name.ilike(t),
+            SoftwareCatalog.publisher.ilike(t),
+        ))
     if category_id:
         q = q.where(SoftwareCatalog.category_id == category_id)
     if gxp_flag == "yes":

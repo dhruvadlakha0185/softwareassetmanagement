@@ -272,24 +272,24 @@ export default function CatalogPage() {
         <div style={{ flexShrink: 0, display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
           <input
             ref={searchRef}
-            className="fi2" style={{ flex: 1, minWidth: 0 }}
+            className="fi2" style={{ flex: "1 1 200px", minWidth: 160 }}
             placeholder="Search SW_ID, software name, publisher…"
             value={search} onChange={e => setSearch(e.target.value)}
           />
-          <select className="fi2" style={{ flexShrink: 0 }} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+          <select className="fi2" style={{ flex: "0 0 155px" }} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
             <option value="">All Categories</option>
             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <select className="fi2" style={{ flexShrink: 0 }} value={filterGxp} onChange={e => setFilterGxp(e.target.value)}>
+          <select className="fi2" style={{ flex: "0 0 120px" }} value={filterGxp} onChange={e => setFilterGxp(e.target.value)}>
             <option value="">All (GxP)</option>
             <option value="yes">GxP</option>
             <option value="no">Non-GxP</option>
           </select>
-          <select className="fi2" style={{ flexShrink: 0 }} value={filterOwner} onChange={e => setFilterOwner(e.target.value)}>
+          <select className="fi2" style={{ flex: "0 0 155px" }} value={filterOwner} onChange={e => setFilterOwner(e.target.value)}>
             <option value="">All App Owners</option>
             {ownerOptions.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
-          <button className="btn btn-p btn-sm" style={{ flexShrink: 0, background: "var(--navy-mid)", whiteSpace: "nowrap" }} onClick={() => window.location.href = "/onboarding"}>
+          <button className="btn btn-p btn-sm" style={{ flex: "0 0 auto", background: "var(--navy-mid)", whiteSpace: "nowrap" }} onClick={() => window.location.href = "/onboarding"}>
             + Onboard New
           </button>
         </div>
