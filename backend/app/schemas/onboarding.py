@@ -70,3 +70,62 @@ class PublishOut(BaseModel):
     sw_id: str
     contract_id: UUID
     ent_ids: list[str]
+
+
+# ── Multi-line-item publish (new wizard) ──────────────────────────────────────
+
+class MultiLineItemIn(BaseModel):
+    """One line item = one Contract Name → one Canonical Name → one SW_ID + ENT_ID."""
+    contract_name: str                    # as written in the contract
+    canonical_name: str                   # standardised platform name
+    sw_id: str | None = None             # existing SW_ID; None = create new
+    license_type: str = "subscription"
+    metric_id: UUID | None = None
+    entitled_count: int | None = None
+    unit_cost_inr: int | None = None
+    annual_cost_inr: int | None = None
+    region_id: UUID | None = None        # per-item override
+    gxp_flag: str = "no"
+    aliases: list[str] = []
+    # Required only when sw_id is None (creating new catalog entry)
+    category_id: UUID | None = None
+    sub_category_id: UUID | None = None
+    deployment: str = "cloud"
+    vendor_risk: str = "LOW"
+    publisher: str | None = None
+
+
+class MultiPublishPayload(BaseModel):
+    # Contract header fields (shared across all line items)
+    vendor_name: str | None = None
+    reseller: str | None = None
+    po_number: str | None = None
+    clm_id: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    total_value_inr: int | None = None
+    auto_renewal_clause: str | None = None
+    # Shared metadata defaults (overridable per item)
+    deployment: str = "cloud"
+    region_id: UUID | None = None
+    notes: str | None = None
+    # Owner & source config
+    app_owner_id: UUID | None = None
+    discovery_source_id: UUID | None = None
+    usage_method_id: UUID | None = None
+    # Line items
+    line_items: list[MultiLineItemIn] = []
+
+
+class MultiPublishCreated(BaseModel):
+    sw_id: str
+    ent_id: str
+    contract_id: UUID
+    canonical_name: str
+    contract_name: str
+    is_new_sw: bool
+
+
+class MultiPublishOut(BaseModel):
+    created: list[MultiPublishCreated]
+    skipped: list[str] = []

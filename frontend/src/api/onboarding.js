@@ -28,6 +28,9 @@ export const deleteDraft = (id) =>
 export const publishOnboarding = (data) =>
   client.post(`${base}/publish`, data).then(r => r.data);
 
+export const multiPublish = (data) =>
+  client.post(`${base}/multi-publish`, data).then(r => r.data);
+
 export const downloadBulkTemplate = () =>
   client.get(`${base}/bulk-template`, { responseType: "blob" }).then(r => r.data);
 

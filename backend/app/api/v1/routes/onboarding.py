@@ -9,7 +9,10 @@ from app.core.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.catalog import SoftwareCatalog, SoftwareAlias
 from app.models.contracts import Contract, Entitlement, OnboardingDraft
-from app.schemas.onboarding import DraftSave, DraftOut, PublishPayload, PublishOut
+from app.schemas.onboarding import (
+    DraftSave, DraftOut, PublishPayload, PublishOut,
+    MultiPublishPayload, MultiPublishOut, MultiPublishCreated,
+)
 from app.services.ai.contract_extractor import extract_contract_text, call_openai
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
@@ -221,6 +224,153 @@ async def publish_onboarding(
 
     await db.commit()
     return PublishOut(sw_id=sw_id, contract_id=contract.id, ent_ids=ent_ids)
+
+
+@router.post("/multi-publish", response_model=MultiPublishOut, status_code=201)
+async def multi_publish(
+    body: MultiPublishPayload,
+    current_user=Depends(require_role(["COE_ADMIN"])),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    New-wizard publish: one contract → multiple SW+ENT pairs.
+    Each line item gets its own Contract record (sharing PO/CLM/dates),
+    its own SW_ID (new or existing), and its own ENT_ID.
+    """
+    from app.models.masters import LicenseMetric
+
+    if not body.line_items:
+        raise HTTPException(status_code=400, detail="No line items provided")
+
+    created: list[MultiPublishCreated] = []
+    skipped: list[str] = []
+
+    for item in body.line_items:
+        try:
+            # ── Resolve SW entry ──────────────────────────────────────────
+            is_new_sw = False
+            if item.sw_id:
+                sw = await db.get(SoftwareCatalog, item.sw_id)
+                if not sw:
+                    skipped.append(f"'{item.contract_name}': SW_ID {item.sw_id} not found")
+                    continue
+                sw_id = sw.sw_id
+            else:
+                existing = (await db.execute(
+                    select(SoftwareCatalog).where(
+                        SoftwareCatalog.canonical_name == item.canonical_name
+                    )
+                )).scalar_one_or_none()
+                if existing:
+                    sw_id = existing.sw_id
+                else:
+                    max_sw = (await db.execute(
+                        select(func.max(SoftwareCatalog.sw_id)).where(SoftwareCatalog.sw_id.like("SW-%"))
+                    )).scalar_one_or_none()
+                    n = int(max_sw.split("-")[1]) + 1 if max_sw else 1
+                    while True:
+                        candidate = f"SW-{n:03d}"
+                        if not await db.get(SoftwareCatalog, candidate):
+                            sw_id = candidate
+                            break
+                        n += 1
+                    sw_entry = SoftwareCatalog(
+                        sw_id=sw_id,
+                        canonical_name=item.canonical_name,
+                        publisher=item.publisher or body.vendor_name,
+                        category_id=item.category_id,
+                        sub_category_id=item.sub_category_id,
+                        gxp_flag=item.gxp_flag,
+                        vendor_risk=item.vendor_risk,
+                        deployment=item.deployment or body.deployment,
+                        region_id=item.region_id or body.region_id,
+                        app_owner_id=body.app_owner_id,
+                        notes=body.notes,
+                        onboarded_date=date.today(),
+                    )
+                    db.add(sw_entry)
+                    if item.aliases:
+                        for alias in item.aliases:
+                            if alias.strip():
+                                db.add(SoftwareAlias(sw_id=sw_id, alias_name=alias.strip(), source_name="onboarding"))
+                    is_new_sw = True
+
+            # ── Create Contract (one per line item, shared header fields) ─
+            contract = Contract(
+                sw_id=sw_id,
+                po_number=body.po_number,
+                clm_id=body.clm_id,
+                reseller=body.reseller,
+                start_date=body.start_date,
+                end_date=body.end_date,
+                total_value_inr=body.total_value_inr,
+                auto_renewal_clause=body.auto_renewal_clause,
+                storage_backend="local",
+                created_by=current_user.id,
+            )
+            db.add(contract)
+            await db.flush()
+
+            # ── Resolve metric by ID ──────────────────────────────────────
+            metric_name = None
+            if item.metric_id:
+                m = await db.get(LicenseMetric, item.metric_id)
+                if m:
+                    metric_name = m.name
+
+            # ── Create Entitlement ────────────────────────────────────────
+            max_ent = (await db.execute(
+                select(func.max(Entitlement.ent_id)).where(Entitlement.ent_id.like("ENT-%"))
+            )).scalar_one_or_none()
+            ent_n = int(max_ent.split("-")[1]) + 1 if max_ent else 1
+            while True:
+                ent_candidate = f"ENT-{ent_n:03d}"
+                if not await db.get(Entitlement, ent_candidate):
+                    ent_id = ent_candidate
+                    break
+                ent_n += 1
+
+            ent = Entitlement(
+                ent_id=ent_id,
+                sw_id=sw_id,
+                contract_id=contract.id,
+                contract_name=item.contract_name,
+                metric_id=item.metric_id,
+                license_type=item.license_type,
+                entitled_count=item.entitled_count,
+                in_use_count=0,
+                unit_cost_inr=item.unit_cost_inr,
+                annual_cost_inr=item.annual_cost_inr,
+                region_id=item.region_id or body.region_id,
+                discovery_source_id=body.discovery_source_id,
+                usage_method_id=body.usage_method_id,
+                app_owner_id=body.app_owner_id,
+                status="ACTIVE",
+            )
+            db.add(ent)
+            await db.flush()
+
+            created.append(MultiPublishCreated(
+                sw_id=sw_id,
+                ent_id=ent_id,
+                contract_id=contract.id,
+                canonical_name=item.canonical_name,
+                contract_name=item.contract_name,
+                is_new_sw=is_new_sw,
+            ))
+
+        except Exception as e:
+            skipped.append(f"'{item.contract_name}': {e}")
+
+    from app.services.audit_logger import log_event
+    await log_event(
+        db, current_user.id, "SOFTWARE_ONBOARDED", "software_catalog",
+        str(created[0].sw_id) if created else "none",
+        after={"items_created": len(created), "po_number": body.po_number},
+        is_gxp=any(i.gxp_flag != "no" for i in body.line_items),
+    )
+    await db.commit()
+    return MultiPublishOut(created=created, skipped=skipped)
 
 
 # ── Bulk Onboarding ───────────────────────────────────────────────────────────
