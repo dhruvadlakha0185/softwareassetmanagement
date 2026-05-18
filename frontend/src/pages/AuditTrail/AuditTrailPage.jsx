@@ -53,21 +53,34 @@ export default function AuditTrailPage() {
   };
 
   return (
-    <div className="page">
-      <div className="ph">
-        <div className="bc">SAM Platform <span>›</span> Audit Trail</div>
-        <h1>Audit Trail</h1>
-        <p>Append-only · tamper-evident · GxP 21 CFR Part 11 compliant · {entries.length} entries</p>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 52px)", overflow: "hidden", padding: "18px 22px 0" }}>
+
+      {/* Header */}
+      <div style={{ flexShrink: 0, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: "var(--tx-q)", marginBottom: 4 }}>
+          SAM Platform <span style={{ color: "var(--tx-m)" }}>›</span> Audit Trail
+        </div>
+        <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 2 }}>Audit Trail</h1>
+        <p style={{ fontSize: 12.5, color: "var(--tx-m)" }}>
+          Append-only · tamper-evident · GxP 21 CFR Part 11 compliant · {entries.length} entries
+        </p>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-        <select className="fi2" value={filterEntityType} onChange={e => setFilterEntityType(e.target.value)}>
+      {/* Filter bar — single line, no wrap */}
+      <div style={{ flexShrink: 0, display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+        <input
+          className="fi2" style={{ flex: "1 1 200px", minWidth: 160 }}
+          value={filterSwId}
+          onChange={e => setFilterSwId(e.target.value)}
+          placeholder="SW_ID filter…"
+        />
+        <select className="fi2" style={{ flex: "0 0 155px" }} value={filterEntityType} onChange={e => setFilterEntityType(e.target.value)}>
           <option value="">All Entities</option>
           <option value="software_catalog">Software Catalog</option>
           <option value="entitlement">Entitlement</option>
           <option value="reconciliation_run">Reconciliation</option>
         </select>
-        <select className="fi2" value={filterActionType} onChange={e => setFilterActionType(e.target.value)}>
+        <select className="fi2" style={{ flex: "0 0 155px" }} value={filterActionType} onChange={e => setFilterActionType(e.target.value)}>
           <option value="">All Actions</option>
           <option value="CATALOG_CREATED">Catalog Created</option>
           <option value="CATALOG_UPDATED">Catalog Updated</option>
@@ -75,24 +88,19 @@ export default function AuditTrailPage() {
           <option value="SOFTWARE_ONBOARDED">Software Onboarded</option>
           <option value="RECONCILIATION_RUN">Reconciliation Run</option>
         </select>
-        <input
-          className="fi2" style={{ width: 110 }}
-          value={filterSwId}
-          onChange={e => setFilterSwId(e.target.value)}
-          placeholder="SW_ID filter"
-        />
-        <div style={{ flex: 1 }} />
-        <button className="btn btn-o btn-sm" onClick={handleExport} disabled={exporting}>
+        <button className="btn btn-o btn-sm" style={{ flex: "0 0 auto", whiteSpace: "nowrap" }} onClick={handleExport} disabled={exporting}>
           {exporting ? "Exporting…" : "⬇ Export XLSX"}
         </button>
       </div>
 
-      <div className="tw">
-        <table>
+      {/* Table — fills remaining height */}
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto", borderRadius: 8, border: "1px solid var(--bdr)", marginBottom: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
           <thead>
-            <tr>
-              <th>Timestamp (UTC)</th><th>Action</th><th>Entity</th>
-              <th>Entity ID</th><th>SW_ID</th><th>GxP</th><th>Reason</th><th>Details</th>
+            <tr style={{ background: "var(--surf)" }}>
+              {["Timestamp (UTC)","Action","Entity","Entity ID","SW_ID","GxP","Reason","Details"].map(h => (
+                <th key={h} style={{ position: "sticky", top: 0, zIndex: 2, background: "var(--surf)", borderBottom: "2px solid var(--bdr)", padding: "8px 12px", fontSize: 10, fontWeight: 700, color: "var(--tx-q)", textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap", textAlign: "left" }}>{h}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
