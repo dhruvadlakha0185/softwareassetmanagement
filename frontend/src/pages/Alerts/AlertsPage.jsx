@@ -50,38 +50,46 @@ export default function AlertsPage() {
   const unreadCount = alerts.filter(a => !a.is_read).length;
 
   return (
-    <div className="page">
-      <div className="ph">
-        <div className="bc">SAM Platform <span>›</span> Alerts &amp; Nudges</div>
-        <h1>Alerts &amp; Notifications</h1>
-        <p>{alerts.length} alerts · {unreadCount} unread</p>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 52px)", overflow: "hidden", padding: "18px 22px 0" }}>
+
+      {/* Header */}
+      <div style={{ flexShrink: 0, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: "var(--tx-q)", marginBottom: 4 }}>
+          SAM Platform <span style={{ color: "var(--tx-m)" }}>›</span> Alerts &amp; Nudges
+        </div>
+        <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 2 }}>Alerts &amp; Notifications</h1>
+        <p style={{ fontSize: 12.5, color: "var(--tx-m)" }}>{alerts.length} alerts · {unreadCount} unread</p>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
-        <select className="fi2" value={filterType} onChange={e => setFilterType(e.target.value)}>
+      {/* Filter bar — single line, no wrap */}
+      <div style={{ flexShrink: 0, display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+        <select className="fi2" style={{ flex: "0 0 140px" }} value={filterType} onChange={e => setFilterType(e.target.value)}>
           <option value="">All Types</option>
           <option value="RENEWAL">Renewal</option>
           <option value="UTILISATION">Utilisation</option>
         </select>
-        <select className="fi2" value={filterSeverity} onChange={e => setFilterSeverity(e.target.value)}>
+        <select className="fi2" style={{ flex: "0 0 145px" }} value={filterSeverity} onChange={e => setFilterSeverity(e.target.value)}>
           <option value="">All Severities</option>
           <option value="CRITICAL">Critical</option>
           <option value="HIGH">High</option>
           <option value="MEDIUM">Medium</option>
           <option value="INFO">Info</option>
         </select>
-        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer" }}>
+        <label style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>
           <input type="checkbox" checked={unreadOnly} onChange={e => setUnreadOnly(e.target.checked)} />
           Unread only
         </label>
         <div style={{ flex: 1 }} />
         {unreadCount > 0 && (
-          <button className="btn btn-o btn-sm" onClick={handleMarkAllRead}>Mark all as read</button>
+          <button className="btn btn-o btn-sm" style={{ flex: "0 0 auto", whiteSpace: "nowrap" }} onClick={handleMarkAllRead}>
+            Mark all as read
+          </button>
         )}
       </div>
 
-      {loading && <div style={{ color: "var(--tx-q)", fontSize: 13 }}>Loading…</div>}
-
+      {/* Alert cards — scrollable */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", marginBottom: 12 }}>
+      {loading && <div style={{ color: "var(--tx-q)", fontSize: 13, padding: "12px 0" }}>Loading…</div>}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {alerts.map(a => {
           const sc = SEVERITY_COLOR[a.severity] || SEVERITY_COLOR.INFO;
@@ -132,6 +140,7 @@ export default function AlertsPage() {
             No alerts. Run reconciliation or wait for the daily scheduler to generate alerts.
           </div>
         )}
+      </div>
       </div>
     </div>
   );
