@@ -282,10 +282,10 @@ async def multi_publish(
                         sub_category_id=item.sub_category_id,
                         gxp_flag=item.gxp_flag,
                         vendor_risk=item.vendor_risk,
-                        deployment=item.deployment or body.deployment,
-                        region_id=item.region_id or body.region_id,
+                        deployment=item.deployment,
+                        region_id=item.region_id,
                         app_owner_id=body.app_owner_id,
-                        notes=body.notes,
+                        notes=item.notes,
                         onboarded_date=date.today(),
                     )
                     db.add(sw_entry)
@@ -341,7 +341,7 @@ async def multi_publish(
                 in_use_count=0,
                 unit_cost_inr=item.unit_cost_inr,
                 annual_cost_inr=item.annual_cost_inr,
-                region_id=item.region_id or body.region_id,
+                region_id=item.region_id,
                 discovery_source_id=body.discovery_source_id,
                 usage_method_id=body.usage_method_id,
                 app_owner_id=body.app_owner_id,

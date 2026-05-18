@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  extractContract, publishOnboarding, multiPublish,
+  extractContract, multiPublish,
   downloadBulkTemplate, bulkOnboard,
 } from "../../api/onboarding";
 import { fetchCatalogBrief } from "../../api/catalog";
@@ -13,6 +13,8 @@ function newItem(idx) {
     id: `item-${Date.now()}-${idx}`,
     contractName: "", canonicalName: "", swId: "",
     isExisting: false, isAiDetected: false,
+    // Per-item metadata (Step 4 merged into Step 3)
+    deployment: "cloud", regionId: "", notes: "",
     licenseType: "subscription", metricId: "",
     entitledCount: "", unitCostInr: "", annualCostInr: "",
     regionId: "", gxpFlag: "no", aliasInput: "", aliases: [],
@@ -31,7 +33,7 @@ function fmtINR(n) {
 }
 
 // ── Stepper ───────────────────────────────────────────────────────────────────
-const STEPS = ["Upload Contract","AI Extraction","Line Items","SW Metadata","Owner & DOA","Source Config","Review & Publish"];
+const STEPS = ["Upload Contract","AI Extraction","Line Items","Owner & DOA","Source Config","Review & Publish"];
 
 function Stepper({ current, draftsCount, onDrafts }) {
   return (
@@ -208,11 +210,6 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
     onChange({ ...item, unitCostInr: val, annualCostInr: seats && cost ? String(seats * cost) : "" });
   };
 
-  const addAlias = () => {
-    if (!item.aliasInput.trim()) return;
-    onChange({ ...item, aliases: [...item.aliases, item.aliasInput.trim()], aliasInput: "" });
-  };
-
   const ambSeats = item.aiDetected && item.aiEntitled != null;
 
   return (
@@ -317,12 +314,21 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
           </div>
         </div>
 
-        {/* Row 4: Region | GxP */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+        {/* Row 4: Deployment | Region | GxP — per item (merged from Step 4) */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Region / Scope</label>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Deployment</label>
+            <select className="fi2" style={{ width: "100%" }} value={item.deployment} onChange={e => onChange({ ...item, deployment: e.target.value })}>
+              <option value="cloud">Cloud</option>
+              <option value="on_premise">On-Premise</option>
+              <option value="desktop_cloud">Desktop/Cloud</option>
+              <option value="hybrid">Hybrid</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Region / Scope <span style={{ color: "var(--red-m)" }}>*</span></label>
             <select className="fi2" style={{ width: "100%" }} value={item.regionId} onChange={e => onChange({ ...item, regionId: e.target.value })}>
-              <option value="">Use shared default</option>
+              <option value="">Select region…</option>
               {regions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </div>
@@ -335,11 +341,19 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
           </div>
         </div>
 
-        {/* New catalog entry metadata */}
+        {/* Row 5: Notes / Business Description */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Notes / Business Description</label>
+          <textarea className="fi2" rows={2} style={{ width: "100%", resize: "vertical" }}
+            value={item.notes} onChange={e => onChange({ ...item, notes: e.target.value })}
+            placeholder="Describe the purpose of this software, primary users, departments…" />
+        </div>
+
+        {/* New catalog entry — only Category, Sub-Category, Vendor Risk needed (Deployment/GxP already above) */}
         {!item.isExisting && item.canonicalName && (
           <div style={{ border: "1px solid var(--bdr)", borderRadius: 8, padding: 14, marginBottom: 14, background: "var(--surf)" }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>New Catalog Entry — Metadata Required</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Category <span style={{ color: "var(--red-m)" }}>*</span></label>
                 <select className="fi2" style={{ width: "100%" }} value={item.categoryId} onChange={e => onChange({ ...item, categoryId: e.target.value, subCategoryId: "" })}>
@@ -352,21 +366,6 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
                 <select className="fi2" style={{ width: "100%" }} value={item.subCategoryId} onChange={e => onChange({ ...item, subCategoryId: e.target.value })} disabled={!item.categoryId}>
                   <option value="">{item.categoryId ? "Select…" : "Select category first"}</option>
                   {subCats.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>GxP Relevant?</label>
-                <select className="fi2" style={{ width: "100%" }} value={item.gxpFlag === "no" ? "no" : "yes"} onChange={e => onChange({ ...item, gxpFlag: e.target.value === "yes" ? "yes_21cfr" : "no" })}>
-                  <option value="no">No</option><option value="yes">Yes</option>
-                </select>
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Deployment</label>
-                <select className="fi2" style={{ width: "100%" }} value={item.deployment} onChange={e => onChange({ ...item, deployment: e.target.value })}>
-                  <option value="cloud">Cloud</option><option value="on_premise">On-Premise</option>
-                  <option value="desktop_cloud">Desktop/Cloud</option><option value="hybrid">Hybrid</option>
                 </select>
               </div>
               <div>
@@ -421,10 +420,7 @@ function ManualFlow({ onBack }) {
   // Step 3: Line items
   const [lineItems, setLineItems] = useState([newItem(0)]);
 
-  // Step 4-6: Shared metadata
-  const [sharedDeployment, setSharedDeployment] = useState("cloud");
-  const [sharedRegionId, setSharedRegionId] = useState("");
-  const [notes, setNotes] = useState("");
+  // Step 4 (merged into line items) — Steps 5-6:
   const [appOwnerId, setAppOwnerId] = useState("");
   const [discoverySourceId, setDiscoverySourceId] = useState("");
   const [usageMethodId, setUsageMethodId] = useState("");
@@ -535,9 +531,6 @@ function ManualFlow({ onBack }) {
         end_date: meta.endDate || undefined,
         total_value_inr: meta.totalValue ? parseInt(meta.totalValue) : undefined,
         auto_renewal_clause: meta.autoRenewal || undefined,
-        deployment: sharedDeployment,
-        region_id: sharedRegionId || undefined,
-        notes: notes || undefined,
         app_owner_id: appOwnerId || undefined,
         discovery_source_id: discoverySourceId || undefined,
         usage_method_id: usageMethodId || undefined,
@@ -550,12 +543,13 @@ function ManualFlow({ onBack }) {
           entitled_count: li.entitledCount ? parseInt(li.entitledCount) : undefined,
           unit_cost_inr: li.unitCostInr ? parseInt(li.unitCostInr) : undefined,
           annual_cost_inr: li.annualCostInr ? parseInt(li.annualCostInr) : undefined,
+          deployment: li.deployment,
           region_id: li.regionId || undefined,
           gxp_flag: li.gxpFlag,
+          notes: li.notes || undefined,
           aliases: li.aliases,
           category_id: li.categoryId || undefined,
           sub_category_id: li.subCategoryId || undefined,
-          deployment: li.deployment || sharedDeployment,
           vendor_risk: li.vendorRisk,
         })),
       };
@@ -752,43 +746,8 @@ function ManualFlow({ onBack }) {
         <button className="btn btn-o btn-sm" style={{ marginLeft: "auto" }} onClick={addItem}>+ Add Line Item</button>
       </div>
 
-      {/* ── Steps 4-5-6: Shared Metadata + Owner + Source ──────────────────── */}
+      {/* ── Steps 4 (merged above) → Steps 5 + 6 side by side ─────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
-        {/* Step 4: Shared Metadata */}
-        <div style={{ border: "1px solid var(--bdr)", borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ background: "var(--surf)", padding: "12px 16px", borderBottom: "1px solid var(--bdr)" }}>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>Step 4 — Shared Metadata</div>
-            <div style={{ fontSize: 11, color: "var(--tx-q)", marginTop: 2 }}>Applied to all line items in this contract unless overridden per-item above</div>
-          </div>
-          <div style={{ padding: 16 }}>
-            <div style={{ background: "var(--navy-xlt)", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "var(--navy-mid)", marginBottom: 14 }}>
-              Fields set here apply to all line items. Per-item overrides (GxP, category) are set in each line item block above.
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Deployment</label>
-                <select className="fi2" style={{ width: "100%" }} value={sharedDeployment} onChange={e => setSharedDeployment(e.target.value)}>
-                  <option value="cloud">Cloud</option><option value="on_premise">On-Premise</option>
-                  <option value="desktop_cloud">Desktop/Cloud</option><option value="hybrid">Hybrid</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Region / Scope <span style={{ color: "var(--red-m)" }}>*</span></label>
-                <select className="fi2" style={{ width: "100%" }} value={sharedRegionId} onChange={e => setSharedRegionId(e.target.value)}>
-                  <option value="">Select region…</option>
-                  {regions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
-              </div>
-            </div>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Notes / Business Description (shared)</label>
-              <textarea className="fi2" rows={4} style={{ width: "100%", resize: "vertical" }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Microsoft Enterprise Agreement 2026 — covers all Microsoft 365 productivity, collaboration, BI, and security products for DRL globally." />
-            </div>
-          </div>
-        </div>
-
-        {/* Steps 5 + 6 stacked */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* Step 5: Owner & DOA */}
           <div style={{ border: "1px solid var(--bdr)", borderRadius: 10, overflow: "hidden", flex: 1 }}>
             <div style={{ background: "var(--surf)", padding: "12px 16px", borderBottom: "1px solid var(--bdr)" }}>
@@ -862,7 +821,6 @@ function ManualFlow({ onBack }) {
               </div>
             </div>
           </div>
-        </div>
       </div>
 
       {/* ── Step 7: Review & Publish ─────────────────────────────────────── */}

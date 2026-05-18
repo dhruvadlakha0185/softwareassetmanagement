@@ -84,13 +84,15 @@ class MultiLineItemIn(BaseModel):
     entitled_count: int | None = None
     unit_cost_inr: int | None = None
     annual_cost_inr: int | None = None
-    region_id: UUID | None = None        # per-item override
+    # Per-item metadata (merged from old Step 4)
+    deployment: str = "cloud"
+    region_id: UUID | None = None
     gxp_flag: str = "no"
+    notes: str | None = None             # description / use of this specific software
     aliases: list[str] = []
     # Required only when sw_id is None (creating new catalog entry)
     category_id: UUID | None = None
     sub_category_id: UUID | None = None
-    deployment: str = "cloud"
     vendor_risk: str = "LOW"
     publisher: str | None = None
 
@@ -105,15 +107,11 @@ class MultiPublishPayload(BaseModel):
     end_date: date | None = None
     total_value_inr: int | None = None
     auto_renewal_clause: str | None = None
-    # Shared metadata defaults (overridable per item)
-    deployment: str = "cloud"
-    region_id: UUID | None = None
-    notes: str | None = None
-    # Owner & source config
+    # Owner & source config (shared — applies to all line items)
     app_owner_id: UUID | None = None
     discovery_source_id: UUID | None = None
     usage_method_id: UUID | None = None
-    # Line items
+    # Line items — each carries its own deployment/region/notes/gxp
     line_items: list[MultiLineItemIn] = []
 
 
