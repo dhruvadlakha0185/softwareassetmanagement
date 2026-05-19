@@ -285,6 +285,7 @@ async def multi_publish(
                         deployment=item.deployment,
                         region_id=item.region_id,
                         app_owner_id=body.app_owner_id,
+                        secondary_owner_id=body.secondary_owner_id,
                         notes=item.notes,
                         onboarded_date=date.today(),
                     )
@@ -341,6 +342,7 @@ async def multi_publish(
                 in_use_count=0,
                 unit_cost_inr=item.unit_cost_inr,
                 annual_cost_inr=item.annual_cost_inr,
+                vendor_id=contract.vendor_id,
                 region_id=item.region_id,
                 discovery_source_id=body.discovery_source_id,
                 usage_method_id=body.usage_method_id,
@@ -385,16 +387,17 @@ def _generate_bulk_template() -> bytes:
     ws.title = "Bulk Onboarding"
 
     headers = [
-        "Software Name *",        "SW_ID (leave blank=new)",
-        "Publisher",               "Category",
-        "Deployment",              "GxP Relevant (yes/no)",
+        "Software Name *",          "SW_ID (leave blank=new)",
+        "Publisher",                 "Category",
+        "Sub-Category",              "Region",
+        "Deployment",                "GxP Relevant (yes/no)",
         "Vendor Risk (LOW/MEDIUM/HIGH)", "Notes",
-        "Contract Name *",         "PO Number",
-        "CLM ID",                  "Start Date (YYYY-MM-DD)",
-        "End Date (YYYY-MM-DD)",   "Total Value (INR)",
+        "Contract Name *",           "PO Number",
+        "CLM ID",                    "Start Date (YYYY-MM-DD)",
+        "End Date (YYYY-MM-DD)",     "Total Value (INR)",
         "Auto-Renewal (yes/no/opt_in)", "License Type (subscription/perpetual)",
-        "Metric",                  "Entitled Count",
-        "Unit Cost (INR)",         "Annual Cost (INR)",
+        "Metric",                    "Entitled Count",
+        "Unit Cost (INR)",           "Annual Cost (INR)",
     ]
 
     navy_fill = PatternFill("solid", fgColor="1A2E5A")
@@ -412,6 +415,7 @@ def _generate_bulk_template() -> bytes:
     # Example row
     example = [
         "SAP Concur Travel", "", "SAP SE", "Finance & Operations",
+        "Travel Management", "India",
         "cloud", "no", "MEDIUM", "Travel expense management",
         "SAP Concur FY26", "PO-2026-100", "CLM-2026-001",
         "2026-04-01", "2027-03-31", "2500000",
@@ -440,6 +444,8 @@ def _parse_bulk_xlsx(data: bytes) -> list[dict]:
         "SW_ID (leave blank=new)": "sw_id",
         "Publisher": "publisher",
         "Category": "category_name",
+        "Sub-Category": "sub_category_name",
+        "Region": "region_name",
         "Deployment": "deployment",
         "GxP Relevant (yes/no)": "gxp",
         "Vendor Risk (LOW/MEDIUM/HIGH)": "vendor_risk",
@@ -547,24 +553,48 @@ async def bulk_onboard(
                     if deploy not in ("cloud", "on_premise", "desktop_cloud", "hybrid"):
                         deploy = "cloud"
 
-                    # Resolve category by name
+                    # Resolve category + sub-category by name
+                    from app.models.masters import SubCategory, Region
                     cat_name = row.get("category_name", "").strip()
                     cat_id = None
+                    sub_cat_id = None
                     if cat_name:
                         cat = (await db.execute(
                             select(Category).where(Category.name.ilike(cat_name))
                         )).scalar_one_or_none()
                         if cat:
                             cat_id = cat.id
+                            sub_cat_name = row.get("sub_category_name", "").strip()
+                            if sub_cat_name:
+                                sub = (await db.execute(
+                                    select(SubCategory).where(
+                                        SubCategory.category_id == cat.id,
+                                        SubCategory.name.ilike(sub_cat_name)
+                                    )
+                                )).scalar_one_or_none()
+                                if sub:
+                                    sub_cat_id = sub.id
+
+                    # Resolve region by name
+                    region_id = None
+                    region_name_val = row.get("region_name", "").strip()
+                    if region_name_val:
+                        reg = (await db.execute(
+                            select(Region).where(Region.name.ilike(region_name_val))
+                        )).scalar_one_or_none()
+                        if reg:
+                            region_id = reg.id
 
                     sw_entry = SoftwareCatalog(
                         sw_id=sw_id,
                         canonical_name=canonical,
                         publisher=row.get("publisher") or None,
                         category_id=cat_id,
+                        sub_category_id=sub_cat_id,
                         gxp_flag=gxp_flag,
                         vendor_risk=vendor_risk,
                         deployment=deploy,
+                        region_id=region_id,
                         notes=row.get("notes") or None,
                         onboarded_date=date.today(),
                     )

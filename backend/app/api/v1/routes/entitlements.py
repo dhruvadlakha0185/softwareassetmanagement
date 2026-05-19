@@ -264,6 +264,7 @@ async def renew_entitlement(
         in_use_count=0,
         unit_cost_inr=unit_cost_inr,
         annual_cost_inr=annual_cost_inr,
+        vendor_id=new_contract.vendor_id,
         region_id=old_ent.region_id,
         discovery_source_id=old_ent.discovery_source_id,
         usage_method_id=old_ent.usage_method_id,
@@ -446,6 +447,7 @@ async def upload_usage(
                     os=row.get("os"),
                     version=row.get("version"),
                     last_seen=row.get("last_seen"),
+                    site=row.get("site"),
                     upload_date=today_d,
                     upload_batch_id=batch_id,
                 )

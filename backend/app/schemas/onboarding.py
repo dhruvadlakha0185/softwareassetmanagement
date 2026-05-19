@@ -59,6 +59,7 @@ class PublishPayload(BaseModel):
     deployment: str = "cloud"
     region_id: UUID | None = None
     app_owner_id: UUID | None = None
+    secondary_owner_id: UUID | None = None
     notes: str | None = None
     # Step 3 — line items
     line_items: list[LineItemIn] = []
@@ -109,6 +110,7 @@ class MultiPublishPayload(BaseModel):
     auto_renewal_clause: str | None = None
     # Owner & source config (shared — applies to all line items)
     app_owner_id: UUID | None = None
+    secondary_owner_id: UUID | None = None
     discovery_source_id: UUID | None = None
     usage_method_id: UUID | None = None
     # Line items — each carries its own deployment/region/notes/gxp

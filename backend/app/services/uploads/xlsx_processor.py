@@ -78,14 +78,14 @@ def generate_template(entitlements: list[dict]) -> bytes:
 
     # ── Tab B — License Discovery ─────────────────────────────────────────────
     # Locked (cols 1-3): ENT_ID | SW_ID | Contract Software Name
-    # Editable (cols 4-11): Application Tagged | Data Source | Device Type
-    #   | Device ID | OS | Version | Last Seen (YYYY-MM-DD) | Region
+    # Editable (cols 4-12): Application Tagged | Data Source | Device Type
+    #   | Device ID | OS | Version | Last Seen (YYYY-MM-DD) | Site | Region
     ws_b = wb.create_sheet("Tab B - License Discovery")
     headers_b = [
-        "ENT_ID", "SW_ID", "Contract Software Name",          # locked (1-3)
-        "Application Tagged", "Data Source",                   # editable (4-5)
-        "Device Type (endpoint/server)", "Device ID",          # editable (6-7)
-        "OS", "Version", "Last Seen (YYYY-MM-DD)", "Region",   # editable (8-11)
+        "ENT_ID", "SW_ID", "Contract Software Name",              # locked (1-3)
+        "Application Tagged", "Data Source",                       # editable (4-5)
+        "Device Type (endpoint/server)", "Device ID",              # editable (6-7)
+        "OS", "Version", "Last Seen (YYYY-MM-DD)", "Site", "Region",  # editable (8-12)
     ]
     ws_b.append(headers_b)
     _style_header(ws_b, 1, len(headers_b))
@@ -102,6 +102,7 @@ def generate_template(entitlements: list[dict]) -> bytes:
             "",  # OS — user fills
             "",  # Version — user fills
             "",  # Last Seen — user fills
+            "",  # Site — user fills
             "",  # Region — user fills
         ])
 
@@ -144,15 +145,23 @@ def parse_tab_a(data: bytes) -> list[dict]:
         license_type = str(row[7]).strip().lower() if row[7] else None
         if license_type not in ("subscription", "perpetual"):
             license_type = None  # ignore invalid values
+        entitled   = int(row[8])  if row[8]  is not None else None
+        in_use     = int(row[9])  if row[9]  is not None else None
+        unit_cost  = int(row[10]) if row[10] is not None else None
+        annual_raw = int(row[11]) if row[11] is not None else None
+        # Auto-calc annual_cost when blank but entitled × unit_cost available
+        annual_cost = annual_raw if annual_raw is not None else (
+            entitled * unit_cost if (entitled is not None and unit_cost is not None) else None
+        )
         result.append({
             "ent_id":          str(row[0]).strip(),
-            "sw_id":           str(row[1]).strip() if row[1] else None,   # for lookup / validation
+            "sw_id":           str(row[1]).strip() if row[1] else None,
             "contract_name":   str(row[6]).strip() if row[6] else None,
             "license_type":    license_type,
-            "entitled_count":  int(row[8]) if row[8] is not None else None,
-            "in_use_count":    int(row[9]) if row[9] is not None else None,
-            "unit_cost_inr":   int(row[10]) if row[10] is not None else None,
-            "annual_cost_inr": int(row[11]) if row[11] is not None else None,
+            "entitled_count":  entitled,
+            "in_use_count":    in_use,
+            "unit_cost_inr":   unit_cost,
+            "annual_cost_inr": annual_cost,
             "notes":           str(row[12]).strip() if row[12] else None,
         })
     return result
@@ -172,7 +181,8 @@ def parse_tab_b_discovery(data: bytes) -> list[dict]:
       7  OS (editable)
       8  Version (editable)
       9  Last Seen YYYY-MM-DD (editable)
-      10 Region (editable)
+      10 Site (editable)
+      11 Region (editable)
     Skips rows where both ENT_ID and Contract Software Name are blank.
     """
     from datetime import datetime as _dt
@@ -214,7 +224,8 @@ def parse_tab_b_discovery(data: bytes) -> list[dict]:
             "os":                 str(row[7]).strip() if row[7] else None,
             "version":            str(row[8]).strip() if row[8] else None,
             "last_seen":          last_seen,
-            "region":             str(row[10]).strip() if row[10] else None,
+            "site":               str(row[10]).strip() if row[10] else None,
+            "region":             str(row[11]).strip() if row[11] else None,
         })
     return result
 

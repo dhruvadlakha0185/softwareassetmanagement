@@ -1,5 +1,6 @@
 import uuid
-from sqlalchemy import Column, String, Date, ForeignKey, Enum as SAEnum
+from datetime import datetime
+from sqlalchemy import Column, String, Date, DateTime, Boolean, ForeignKey, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from app.models.base import Base
 
@@ -22,3 +23,5 @@ class DiscoveryRecord(Base):
     region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=True)
     upload_date = Column(Date, nullable=True)
     upload_batch_id = Column(UUID(as_uuid=True), nullable=True)
+    is_current = Column(Boolean, nullable=False, default=True)
+    superseded_at = Column(DateTime, nullable=True)

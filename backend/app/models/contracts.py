@@ -12,6 +12,7 @@ class Contract(Base):
     sw_id = Column(String(20), ForeignKey("software_catalog.sw_id"), nullable=False)
     po_number = Column(String(100), nullable=True)
     clm_id = Column(String(100), nullable=True)
+    clm_url = Column(String(500), nullable=True)
     vendor_id = Column(UUID(as_uuid=True), ForeignKey("vendors.id"), nullable=True)
     reseller = Column(String(200), nullable=True)
     start_date = Column(Date, nullable=True)
@@ -52,6 +53,7 @@ class Entitlement(Base):
     region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=True)
     discovery_source_id = Column(UUID(as_uuid=True), ForeignKey("discovery_sources.id"), nullable=True)
     usage_method_id = Column(UUID(as_uuid=True), ForeignKey("usage_update_methods.id"), nullable=True)
+    vendor_id = Column(UUID(as_uuid=True), ForeignKey("vendors.id"), nullable=True)
     app_owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     status = Column(
         SAEnum("ACTIVE", "EXPIRED", "WATCH", "OVER_DEPLOYED", "UNDER_UTILISED", "OK", name="entitlement_status_enum"),

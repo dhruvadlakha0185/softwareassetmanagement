@@ -10,7 +10,7 @@ class SoftwareCatalog(Base):
     __tablename__ = "software_catalog"
 
     sw_id = Column(String(20), primary_key=True)
-    canonical_name = Column(String(255), nullable=False, unique=True)
+    canonical_name = Column(String(255), nullable=False)   # unique constraint dropped — renewal creates same name with new sw_id
     publisher = Column(String(200), nullable=True)
     category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), nullable=True)
     sub_category_id = Column(UUID(as_uuid=True), ForeignKey("sub_categories.id"), nullable=True)
@@ -28,6 +28,7 @@ class SoftwareCatalog(Base):
     )
     region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=True)
     app_owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    secondary_owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     notes = Column(Text, nullable=True)
     onboarded_date = Column(Date, default=date.today)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
