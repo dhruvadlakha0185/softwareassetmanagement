@@ -1,7 +1,9 @@
 # DRL SAM Platform — Database Schema
 
 > **Database:** PostgreSQL 15 (Supabase local dev port 54322 · AWS RDS production)
-> **Schema version:** Alembic migrations `001_initial_schema` → `002_entitlement_renewal`
+> **Schema version:** Alembic migrations `001_initial_schema` → `002_entitlement_renewal` → `003_schema_fixes`
+>
+> Migration 003 applied on 2026-05-19 — resolves 9 schema gaps identified in review.
 
 ---
 
@@ -25,6 +27,7 @@ users ────────────────────────�
   ├── software_catalog ──── categories / sub_categories                             │
   │       │                 vendors                                                  │
   │       │                 regions                                                  │
+  │       │                 app_owner (users) / secondary_owner (users)  ← NEW      │
   │       └── software_aliases                                                       │
   │                                                                                  │
   ├── contracts ────────── software_catalog                                          │
@@ -32,6 +35,7 @@ users ────────────────────────�
   │               │             discovery_sources                                    │
   │               │             usage_update_methods                                 │
   │               │             regions                                              │
+  │               │             vendors  ← NEW                                       │
   │               └── renewal_of (self-referential FK)                              │
   │                                                                                  │
   ├── discovery_records ── software_catalog / discovery_sources / regions           │
@@ -50,12 +54,12 @@ users ────────────────────────�
 ## Core Tables
 
 ### `software_catalog`
-Master catalog of all software titles. One canonical entry per unique software product.
+Master catalog of all software titles. Multiple entries may share the same `canonical_name` when a contract is renewed (different `sw_id` + `onboarded_date`).
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
 | `sw_id` | VARCHAR(20) | NOT NULL | **PK** — format `SW-001`, auto-incremented |
-| `canonical_name` | VARCHAR(255) | NOT NULL | Unique standardised name across the platform |
+| `canonical_name` | VARCHAR(255) | NOT NULL | Standardised name — no longer unique (renewal versioning) |
 | `publisher` | VARCHAR(200) | nullable | Vendor / publisher name |
 | `category_id` | UUID | nullable | FK → `categories.id` |
 | `sub_category_id` | UUID | nullable | FK → `sub_categories.id` |
@@ -64,10 +68,13 @@ Master catalog of all software titles. One canonical entry per unique software p
 | `vendor_risk` | ENUM | NOT NULL | `LOW` / `MEDIUM` / `HIGH` |
 | `deployment` | ENUM | NOT NULL | `cloud` / `on_premise` / `desktop_cloud` / `hybrid` |
 | `region_id` | UUID | nullable | FK → `regions.id` |
-| `app_owner_id` | UUID | nullable | FK → `users.id` |
+| `app_owner_id` | UUID | nullable | FK → `users.id` — primary application owner |
+| `secondary_owner_id` | UUID | nullable | **NEW (003)** FK → `users.id` — secondary / backup owner |
 | `notes` | TEXT | nullable | Business description / use of software |
-| `onboarded_date` | DATE | nullable | Date added to catalog |
+| `onboarded_date` | DATE | nullable | Date added to catalog — used with `canonical_name` to distinguish renewal vintages |
 | `created_by` | UUID | nullable | FK → `users.id` |
+
+> **Renewal versioning:** When a contract is renewed, `POST /onboarding/multi-publish` creates a new `sw_id` with the same `canonical_name` and today's `onboarded_date`. The old entitlement is set to `EXPIRED` and linked via `entitlements.renewal_of`.
 
 ### `software_aliases`
 Alternative names for a software title (SCCM names, discovery source names, PO names).
@@ -89,7 +96,8 @@ One contract per purchase agreement. A contract belongs to one `sw_id` (primary 
 | `id` | UUID | NOT NULL | **PK** |
 | `sw_id` | VARCHAR(20) | NOT NULL | FK → `software_catalog.sw_id` (primary SW for this contract) |
 | `po_number` | VARCHAR(100) | nullable | Purchase Order number |
-| `clm_id` | VARCHAR(100) | nullable | Contract Lifecycle Management ID |
+| `clm_id` | VARCHAR(100) | nullable | Contract Lifecycle Management reference ID |
+| `clm_url` | VARCHAR(500) | nullable | **NEW (003)** Direct URL to the contract in the CLM system |
 | `vendor_id` | UUID | nullable | FK → `vendors.id` |
 | `reseller` | VARCHAR(200) | nullable | Reseller / distributor name |
 | `start_date` | DATE | nullable | Contract effective date |
@@ -108,7 +116,7 @@ One contract per purchase agreement. A contract belongs to one `sw_id` (primary 
 ---
 
 ### `entitlements`
-One entitlement record per software line item per contract. This is the primary operational record for license counts, costs, and utilisation.
+One entitlement record per software line item per contract. Primary operational record for license counts, costs, and utilisation.
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
@@ -121,7 +129,8 @@ One entitlement record per software line item per contract. This is the primary 
 | `entitled_count` | BIGINT | nullable | Total licensed seats/units purchased |
 | `in_use_count` | BIGINT | nullable | Current active usage (updated via template upload) |
 | `unit_cost_inr` | BIGINT | nullable | Cost per seat/unit in INR |
-| `annual_cost_inr` | BIGINT | nullable | Total annual cost in INR |
+| `annual_cost_inr` | BIGINT | nullable | Total annual cost — auto-calculated as `entitled × unit_cost` when blank on upload |
+| `vendor_id` | UUID | nullable | **NEW (003)** FK → `vendors.id` — propagated from linked contract on creation |
 | `region_id` | UUID | nullable | FK → `regions.id` |
 | `discovery_source_id` | UUID | nullable | FK → `discovery_sources.id` |
 | `usage_method_id` | UUID | nullable | FK → `usage_update_methods.id` |
@@ -147,11 +156,13 @@ Device-level software usage records ingested from SCCM, EDR, CMDB, or manual upl
 | `device_type` | ENUM | nullable | `endpoint` / `server` |
 | `os` | VARCHAR(100) | nullable | Operating system |
 | `version` | VARCHAR(50) | nullable | Software version detected |
-| `last_seen` | DATE | nullable | Last date the software was detected on the device |
+| `last_seen` | DATE | nullable | Last date software was detected on the device |
 | `site` | VARCHAR(100) | nullable | Physical or network site |
 | `region_id` | UUID | nullable | FK → `regions.id` |
 | `upload_date` | DATE | nullable | Date the record was ingested |
 | `upload_batch_id` | UUID | nullable | Groups records from the same upload |
+| `is_current` | BOOLEAN | NOT NULL | **NEW (003)** `true` = active record · `false` = superseded by a newer batch |
+| `superseded_at` | TIMESTAMP | nullable | **NEW (003)** When this record was replaced — enables point-in-time queries |
 
 ---
 
@@ -269,7 +280,7 @@ Delegation of Authority — defines who receives alerts and approvals.
 | `id` | UUID PK | — |
 | `user_id` | UUID FK → users | NOT NULL |
 | `tier` | ENUM | `1` (CIO/Head) / `2` (Manager) |
-| `role_label` | VARCHAR(100) | Display label: "CIO", "COE Head", "Procurement" |
+| `role_label` | VARCHAR(100) | Display label: "CIO", "COE Head", "Procurement" — use `d.role_label` in code |
 | `alert_scope` | VARCHAR(100) | e.g. "All · T-30+ · GxP" |
 | `software_categories_json` | TEXT | JSON array of category IDs this person covers |
 | `created_at` / `updated_at` | TIMESTAMP | — |
@@ -390,7 +401,7 @@ Used for bulk entitlement updates and license discovery data.
 | 9 | Entitled Count | ✏️ Editable | Integer | — | Total licensed seats |
 | 10 | In-Use Count | ✏️ Editable | Integer | — | Current active usage |
 | 11 | Unit Cost (INR) | ✏️ Editable | Integer | — | Cost per seat |
-| 12 | Annual Cost (INR) | ✏️ Editable | Integer | — | Total annual cost |
+| 12 | Annual Cost (INR) | ✏️ Editable | Integer | — | Auto-calculated as `Entitled × Unit Cost` if left blank |
 | 13 | Notes | ✏️ Editable | Text | — | Free text |
 
 **Lookup logic:** ENT_ID (primary) → SW_ID (fallback if ENT_ID blank). If SW_ID has multiple entitlements, ENT_ID is required to disambiguate.
@@ -409,7 +420,8 @@ Used for bulk entitlement updates and license discovery data.
 | 8 | OS | ✏️ Editable | Text | — | e.g. "Windows 11" |
 | 9 | Version | ✏️ Editable | Text | — | e.g. "16.0.17" |
 | 10 | Last Seen (YYYY-MM-DD) | ✏️ Editable | `YYYY-MM-DD` | — | ISO date format |
-| 11 | Region | ✏️ Editable | Text | — | e.g. "India", "Global" |
+| 11 | Site | ✏️ Editable | Text | — | **NEW (003)** Physical or network site e.g. "Hyderabad HQ" |
+| 12 | Region | ✏️ Editable | Text | — | e.g. "India", "Global" |
 
 **Upload supported from:** Entitlements page **or** License Discovery page.
 
@@ -423,54 +435,60 @@ Used to create multiple software + contract + entitlement records in one pass.
 
 | # | Column | Required | Format | Notes |
 |---|---|---|---|---|
-| 1 | Software Name * | **YES** | Text | Canonical name. If matches existing → maps to it. New name → new SW_ID |
-| 2 | SW_ID (leave blank=new) | No | `SW-001` | Provide to map to specific existing SW |
+| 1 | Software Name * | **YES** | Text | Canonical name. Matches existing → maps to it. New name → creates new SW_ID |
+| 2 | SW_ID (leave blank=new) | No | `SW-001` | Provide to explicitly map to an existing SW entry |
 | 3 | Publisher | No | Text | Vendor / publisher name |
 | 4 | Category | No | Text | Must match a master category name (case-insensitive) |
-| 5 | Deployment | No | `cloud` / `on_premise` / `desktop_cloud` / `hybrid` | Default: `cloud` |
-| 6 | GxP Relevant (yes/no) | No | `yes` / `no` | Default: `no` |
-| 7 | Vendor Risk (LOW/MEDIUM/HIGH) | No | `LOW` / `MEDIUM` / `HIGH` | Default: `LOW` |
-| 8 | Notes | No | Text | Business description |
-| 9 | Contract Name * | **YES** | Text | Line item name as in contract |
-| 10 | PO Number | No | Text | Purchase Order number |
-| 11 | CLM ID | No | Text | Contract Lifecycle Management ID |
-| 12 | Start Date (YYYY-MM-DD) | No | `YYYY-MM-DD` | ISO date format |
-| 13 | End Date (YYYY-MM-DD) | No | `YYYY-MM-DD` | ISO date format — drives renewal alerts |
-| 14 | Total Value (INR) | No | Integer | Total contract value |
-| 15 | Auto-Renewal (yes/no/opt_in) | No | `yes` / `no` / `opt_in` | — |
-| 16 | License Type (subscription/perpetual) | No | `subscription` / `perpetual` | Default: `subscription` |
-| 17 | Metric | No | Text | Must match a master metric name (case-insensitive) |
-| 18 | Entitled Count | No | Integer | Total licensed seats/units |
-| 19 | Unit Cost (INR) | No | Integer | Cost per seat |
-| 20 | Annual Cost (INR) | No | Integer | Total annual cost |
+| 5 | Sub-Category | No | Text | **NEW (003)** Must match a sub-category under the selected Category |
+| 6 | Region | No | Text | **NEW (003)** Must match a master region name (case-insensitive) |
+| 7 | Deployment | No | `cloud` / `on_premise` / `desktop_cloud` / `hybrid` | Default: `cloud` |
+| 8 | GxP Relevant (yes/no) | No | `yes` / `no` | Default: `no` |
+| 9 | Vendor Risk (LOW/MEDIUM/HIGH) | No | `LOW` / `MEDIUM` / `HIGH` | Default: `LOW` |
+| 10 | Notes | No | Text | Business description |
+| 11 | Contract Name * | **YES** | Text | Line item name as in contract |
+| 12 | PO Number | No | Text | Purchase Order number |
+| 13 | CLM ID | No | Text | Contract Lifecycle Management ID |
+| 14 | Start Date (YYYY-MM-DD) | No | `YYYY-MM-DD` | ISO date format |
+| 15 | End Date (YYYY-MM-DD) | No | `YYYY-MM-DD` | ISO date format — drives renewal alerts |
+| 16 | Total Value (INR) | No | Integer | Total contract value |
+| 17 | Auto-Renewal (yes/no/opt_in) | No | `yes` / `no` / `opt_in` | — |
+| 18 | License Type (subscription/perpetual) | No | `subscription` / `perpetual` | Default: `subscription` |
+| 19 | Metric | No | Text | Must match a master metric name (case-insensitive) |
+| 20 | Entitled Count | No | Integer | Total licensed seats/units |
+| 21 | Unit Cost (INR) | No | Integer | Cost per seat |
+| 22 | Annual Cost (INR) | No | Integer | Auto-calculated as `Entitled × Unit Cost` if left blank |
 
 ---
 
 ## Gaps & Recommendations
 
-### 🔴 Critical Gaps
+### ✅ Resolved in Migration 003 (2026-05-19)
+
+| # | Gap | Resolution |
+|---|---|---|
+| 1 | `canonical_name` UNIQUE constraint blocks contract renewal | **Fixed** — UNIQUE constraint dropped. `(canonical_name, onboarded_date)` used as soft identifier |
+| 3 | No `vendor_id` on `entitlements` | **Fixed** — column added; propagated from linked contract on creation via multi-publish and renewal endpoints |
+| 4 | `discovery_records` has no `is_current` flag | **Fixed** — `is_current BOOLEAN` + `superseded_at TIMESTAMP` added |
+| 5 | `annual_cost_inr` not auto-calculated | **Fixed** — `parse_tab_a` now computes `entitled × unit_cost` when annual_cost cell is blank |
+| 6 | Bulk template missing `Sub-Category` | **Fixed** — column 5 added; resolved by name from sub_categories master |
+| 7 | Bulk template missing `Region` | **Fixed** — column 6 added; resolved by name from regions master |
+| 8 | `contracts` missing `clm_url` | **Fixed** — `clm_url VARCHAR(500)` column added |
+| 9 | No `secondary_owner_id` on `software_catalog` | **Fixed** — column added to model, onboarding schema, and multi-publish endpoint |
+| 12 | Tab B missing `Site` column | **Fixed** — `Site` added at col 11; `Region` shifted to col 12 |
+
+---
+
+### 🟡 Open Recommendations
 
 | # | Gap | Impact | Recommendation |
 |---|---|---|---|
-| 1 | **`software_catalog.canonical_name` is UNIQUE** — contract renewal creates a duplicate canonical name (new SW_ID, same name) | Bulk onboarding maps to existing instead of creating new | Consider adding `onboarded_date` version tracking or a `is_current` flag to allow versioned catalog entries |
-| 2 | **`doa_hierarchy` missing `escalation_level` field** — the API returns `role_label` but the field name caused a bug in the UI | DOA pills displayed blank | ✅ Fixed in code (`d.role_label`). Schema lacks a formalised `escalation_level` column consistent with the display |
-| 3 | **No `vendor_id` on `entitlements`** — only on `contracts` and `software_catalog` | Cannot filter entitlements by vendor directly | Add `vendor_id` FK on `entitlements` OR expose it via the join in the API |
+| 2 | `doa_hierarchy` field naming — code uses `role_label` but original design referenced `escalation_level` | Minor inconsistency in code readability | Rename column to `escalation_label` in a future migration for clarity |
+| 9a | `usage_uploads.ent_id` is nullable and links to only one entitlement | Upload traceability is not per-entitlement | Add `usage_upload_entitlements` junction table linking one upload to many ENT_IDs |
+| 11 | No immutable history of `entitled_count` changes between reconciliation runs | Cannot reconstruct exact utilisation at arbitrary point-in-time | Reconciliation results snapshot values at run time — sufficient for current reporting; full change history would require an `entitlement_history` event table |
 
-### 🟡 Recommended Improvements
+---
 
-| # | Gap | Impact | Recommendation |
-|---|---|---|---|
-| 4 | **`discovery_records` has no `version` field tracked over time** — each upload creates new records, old ones are not marked stale/superseded | Cannot see trend of in-use over time | Add `is_current BOOLEAN` + `superseded_at TIMESTAMP` to allow point-in-time queries |
-| 5 | **`entitlements.annual_cost_inr` is not auto-calculated from `entitled_count × unit_cost_inr`** — stored explicitly | Inconsistency if unit cost changes | Add a DB trigger or enforce auto-calc in the upload processor |
-| 6 | **Bulk Onboarding Template missing `Sub-Category`** — only `Category` is in the template | Sub-category cannot be set via bulk upload | Add column 4b: `Sub-Category` to the bulk template |
-| 7 | **Bulk Onboarding Template missing `Region`** — deployment region per software cannot be set | Region defaults to null | Add `Region` column to bulk onboarding template |
-| 8 | **`contracts` table has no `clm_reference_url`** — only `clm_id` text | Cannot deep-link to the CLM system | Add `clm_url VARCHAR(500)` column for direct links to contract documents in the CLM system |
-| 9 | **`usage_uploads.ent_id` is nullable** — a single upload processes many entitlements but only records one | Upload history is not per-entitlement | Consider a `usage_upload_entitlements` junction table to link one upload to many ENT_IDs |
-| 10 | **No `AppOwnerHierarchy` (secondary owner)** — only `app_owner_id` on `software_catalog` | Cannot store secondary owner | Add `secondary_owner_id UUID FK → users` on `software_catalog` (UI already shows this field) |
-| 11 | **`reconciliation_results` stores snapshots but `entitlements` are mutable** — no immutable history of `entitled_count` changes | Cannot reconstruct historical utilisation | ✅ Reconciliation results store snapshots at run time — but no general change history table exists for entitlement counts |
-| 12 | **Tab B (License Discovery) does not capture `site`** — the `discovery_records.site` column exists but there is no `Site` column in the template | Site-level filtering impossible after bulk upload | Add `Site` column to Tab B of the usage template |
-
-### 🟢 Already Handled
+### 🟢 Confirmed Handled
 
 - ✅ Append-only audit trail with `before_values_json` / `after_values_json` (GxP 21 CFR Part 11)
 - ✅ Contract renewal chain via `entitlements.renewal_of` self-referential FK
@@ -478,3 +496,8 @@ Used to create multiple software + contract + entitlement records in one pass.
 - ✅ Soft-delete on users (`is_active`) preserving FK integrity
 - ✅ Storage backend abstraction (`local` / `supabase` / `s3`) on both `contracts` and `usage_uploads`
 - ✅ Per-user read tracking on alerts (separate `alert_reads` table, not a flag on `alerts`)
+- ✅ `secondary_owner_id` on `software_catalog` (migration 003)
+- ✅ `vendor_id` on `entitlements` (migration 003)
+- ✅ Sub-Category + Region in bulk onboarding template (migration 003)
+- ✅ Site column in Tab B License Discovery template (migration 003)
+- ✅ Annual cost auto-calculation in upload processor (migration 003)
