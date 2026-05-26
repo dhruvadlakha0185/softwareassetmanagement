@@ -3,7 +3,7 @@ from sqlalchemy import select
 from app.models.contracts import EntitlementPriceSchedule
 
 
-from datetime import date as dt
+from datetime import date, date as dt, timedelta
 from app.schemas.onboarding import MultiLineItemIn, PriceScheduleIn
 from app.schemas.entitlements import PriceScheduleOut
 import uuid
@@ -140,3 +140,143 @@ async def test_multi_publish_creates_price_schedules(client, admin_token, db):
     ent = await db.get(Entitlement, ent_id)
     assert ent.unit_cost == 3600
     assert ent.entitled_count == 500
+
+
+from app.services.alert_generator import sync_active_pricing, generate_price_change_alerts
+from app.models.alerts import Alert
+
+
+@pytest.mark.asyncio
+async def test_sync_active_pricing_updates_entitlement(db):
+    """When Year 2 is active today, sync job updates entitlement columns."""
+    import uuid as _uuid
+    from app.models.catalog import SoftwareCatalog
+    from app.models.contracts import Contract, Entitlement, EntitlementPriceSchedule
+
+    today = date.today()
+    yr1_start = today - timedelta(days=400)
+    yr2_start = today - timedelta(days=35)
+    yr2_end = yr1_start + timedelta(days=730) - timedelta(days=1)
+
+    sw = SoftwareCatalog(
+        sw_id="TEST-SYNC-001",
+        primary_sw_name="Sync Test SW",
+        gxp_flag="no",
+    )
+    db.add(sw)
+    await db.flush()
+
+    contract = Contract(
+        sw_id="TEST-SYNC-001",
+        start_date=yr1_start,
+        end_date=yr1_start + timedelta(days=730),
+        storage_backend="local",
+    )
+    db.add(contract)
+    await db.flush()
+
+    ent = Entitlement(
+        ent_id="ENT-SYNC-T01",
+        sw_id="TEST-SYNC-001",
+        contract_id=contract.id,
+        entitled_count=500,
+        unit_cost=3600,
+        annual_cost=1800000,
+        status="ACTIVE",
+    )
+    db.add(ent)
+    await db.flush()
+
+    db.add(EntitlementPriceSchedule(
+        ent_id="ENT-SYNC-T01", year_number=1,
+        effective_from=yr1_start,
+        effective_to=yr2_start - timedelta(days=1),
+        entitled_count=500, unit_cost=3600, annual_cost=1800000,
+    ))
+    db.add(EntitlementPriceSchedule(
+        ent_id="ENT-SYNC-T01", year_number=2,
+        effective_from=yr2_start,
+        effective_to=yr2_end,
+        entitled_count=550, unit_cost=3800, annual_cost=2090000,
+    ))
+    await db.commit()
+
+    synced = await sync_active_pricing(db)
+    await db.commit()
+
+    await db.refresh(ent)
+    assert ent.unit_cost == 3800
+    assert ent.annual_cost == 2090000
+    assert ent.entitled_count == 550
+    assert synced >= 1
+
+
+@pytest.mark.asyncio
+async def test_price_change_alert_fires_within_threshold(db):
+    """PRICE_YEAR_CHANGE alert is created when Year 2 effective_from is within threshold."""
+    import uuid as _uuid
+    from app.models.catalog import SoftwareCatalog
+    from app.models.contracts import Contract, Entitlement, EntitlementPriceSchedule
+
+    today = date.today()
+    yr2_start = today + timedelta(days=30)
+
+    sw = SoftwareCatalog(
+        sw_id="TEST-ALERT-T02",
+        primary_sw_name="Alert Test SW",
+        gxp_flag="no",
+    )
+    db.add(sw)
+    await db.flush()
+
+    contract = Contract(
+        sw_id="TEST-ALERT-T02",
+        start_date=today - timedelta(days=365),
+        end_date=today + timedelta(days=730),
+        storage_backend="local",
+        renewal_alert_extra_days=[90, 60, 30, 15, 7, 1],
+    )
+    db.add(contract)
+    await db.flush()
+
+    ent = Entitlement(
+        ent_id="ENT-ALERT-T02",
+        sw_id="TEST-ALERT-T02",
+        contract_id=contract.id,
+        entitled_count=500,
+        unit_cost=3600,
+        annual_cost=1800000,
+        status="ACTIVE",
+    )
+    db.add(ent)
+    await db.flush()
+
+    db.add(EntitlementPriceSchedule(
+        ent_id="ENT-ALERT-T02", year_number=1,
+        effective_from=today - timedelta(days=365),
+        effective_to=yr2_start - timedelta(days=1),
+        entitled_count=500, unit_cost=3600, annual_cost=1800000,
+    ))
+    db.add(EntitlementPriceSchedule(
+        ent_id="ENT-ALERT-T02", year_number=2,
+        effective_from=yr2_start,
+        effective_to=yr2_start + timedelta(days=364),
+        entitled_count=550, unit_cost=3800, annual_cost=2090000,
+    ))
+    await db.commit()
+
+    count = await generate_price_change_alerts(db)
+    await db.commit()
+
+    assert count >= 1
+    from sqlalchemy import select
+    result = await db.execute(
+        select(Alert).where(
+            Alert.ent_id == "ENT-ALERT-T02",
+            Alert.alert_type == "PRICE_YEAR_CHANGE",
+        )
+    )
+    alert = result.scalar_one_or_none()
+    assert alert is not None
+    assert alert.body_json["new_unit_cost"] == 3800
+    assert alert.body_json["prev_unit_cost"] == 3600

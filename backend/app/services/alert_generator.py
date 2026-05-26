@@ -5,8 +5,8 @@ Called by APScheduler daily at midnight UTC, and also manually via POST /reconci
 """
 from datetime import date, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from app.models.contracts import Entitlement, Contract
+from sqlalchemy import select, and_
+from app.models.contracts import Entitlement, Contract, EntitlementPriceSchedule
 from app.models.catalog import SoftwareCatalog
 from app.models.alerts import Alert
 
@@ -25,6 +25,109 @@ def _renewal_severity(days: int) -> str:
 
 def _util_severity(util_pct: float) -> str:
     return "HIGH" if util_pct > 100 else "MEDIUM"
+
+
+async def sync_active_pricing(db: AsyncSession) -> int:
+    """
+    For every entitlement with an active price schedule row, update unit_cost /
+    annual_cost / entitled_count to match. Returns count of entitlements updated.
+    """
+    today = date.today()
+    result = await db.execute(
+        select(EntitlementPriceSchedule).where(
+            and_(
+                EntitlementPriceSchedule.effective_from <= today,
+                EntitlementPriceSchedule.effective_to >= today,
+            )
+        )
+    )
+    schedules = result.scalars().all()
+    synced = 0
+    for sched in schedules:
+        ent = await db.get(Entitlement, sched.ent_id)
+        if not ent:
+            continue
+        if (
+            ent.unit_cost != sched.unit_cost
+            or ent.annual_cost != sched.annual_cost
+            or ent.entitled_count != sched.entitled_count
+        ):
+            ent.unit_cost = sched.unit_cost
+            ent.annual_cost = sched.annual_cost
+            ent.entitled_count = sched.entitled_count
+            synced += 1
+    return synced
+
+
+async def generate_price_change_alerts(db: AsyncSession) -> int:
+    """
+    For each Year-2+ schedule row whose effective_from is within the contract's
+    renewal_alert_extra_days window, emit a PRICE_YEAR_CHANGE alert.
+    """
+    today = date.today()
+    result = await db.execute(
+        select(EntitlementPriceSchedule).where(
+            EntitlementPriceSchedule.year_number > 1
+        )
+    )
+    future_schedules = result.scalars().all()
+    created = 0
+
+    for sched in future_schedules:
+        days_until = (sched.effective_from - today).days
+        if days_until < 0:
+            continue
+
+        ent = await db.get(Entitlement, sched.ent_id)
+        if not ent:
+            continue
+
+        contract = await db.get(Contract, ent.contract_id) if ent.contract_id else None
+        stored = contract.renewal_alert_extra_days if contract else None
+        thresholds = sorted(set(stored), reverse=True) if stored else RENEWAL_THRESHOLDS
+
+        if days_until not in thresholds:
+            continue
+
+        if await _alert_exists_today(db, ent.ent_id, "PRICE_YEAR_CHANGE", days_until):
+            continue
+
+        prev_result = await db.execute(
+            select(EntitlementPriceSchedule).where(
+                and_(
+                    EntitlementPriceSchedule.ent_id == sched.ent_id,
+                    EntitlementPriceSchedule.year_number == sched.year_number - 1,
+                )
+            )
+        )
+        prev = prev_result.scalar_one_or_none()
+
+        sw = await db.get(SoftwareCatalog, ent.sw_id)
+        sw_name = sw.primary_sw_name if sw else ent.sw_id
+
+        db.add(Alert(
+            alert_type="PRICE_YEAR_CHANGE",
+            ent_id=ent.ent_id,
+            severity=_renewal_severity(days_until),
+            days_to_expiry=days_until,
+            title=f"Pricing change in {days_until} day{'s' if days_until != 1 else ''}: {sw_name} (Year {sched.year_number})",
+            body_json={
+                "ent_id": ent.ent_id,
+                "sw_name": sw_name,
+                "year_number": sched.year_number,
+                "effective_from": str(sched.effective_from),
+                "prev_seats": prev.entitled_count if prev else None,
+                "new_seats": sched.entitled_count,
+                "prev_unit_cost": prev.unit_cost if prev else None,
+                "new_unit_cost": sched.unit_cost,
+                "prev_annual_cost": prev.annual_cost if prev else None,
+                "new_annual_cost": sched.annual_cost,
+            },
+            is_gxp=(sw.gxp_flag != "no") if sw else False,
+        ))
+        created += 1
+
+    return created
 
 
 async def _alert_exists_today(
@@ -50,21 +153,26 @@ async def generate_alerts(db: AsyncSession) -> int:
     Scan entitlements, create alerts where needed.
     Returns the count of new alerts created.
     """
-    created = 0
+    await sync_active_pricing(db)
+    price_change_created = await generate_price_change_alerts(db)
+
+    created = price_change_created
     ents_result = await db.execute(select(Entitlement))
     ents = ents_result.scalars().all()
 
     for ent in ents:
         sw = await db.get(SoftwareCatalog, ent.sw_id)
         is_gxp = (sw.gxp_flag != "no") if sw else False
-        sw_name = sw.canonical_name if sw else ent.sw_id
+        sw_name = sw.primary_sw_name if sw else ent.sw_id
 
         # ── Renewal alerts ─────────────────────────────────────────────────────
         if ent.contract_id:
             contract = await db.get(Contract, ent.contract_id)
             if contract and contract.end_date:
                 days = (contract.end_date - date.today()).days
-                for threshold in RENEWAL_THRESHOLDS:
+                stored = contract.renewal_alert_extra_days
+                thresholds = sorted(set(stored), reverse=True) if stored else RENEWAL_THRESHOLDS
+                for threshold in thresholds:
                     if days == threshold:
                         if not await _alert_exists_today(db, ent.ent_id, "RENEWAL", threshold):
                             db.add(Alert(

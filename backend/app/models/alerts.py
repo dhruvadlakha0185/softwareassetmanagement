@@ -9,7 +9,7 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    alert_type = Column(SAEnum("RENEWAL", "UTILISATION", name="alert_type_enum"), nullable=False)
+    alert_type = Column(SAEnum("RENEWAL", "UTILISATION", "PRICE_YEAR_CHANGE", name="alert_type_enum"), nullable=False)
     ent_id = Column(String(20), ForeignKey("entitlements.ent_id"), nullable=True)
     severity = Column(
         SAEnum("CRITICAL", "HIGH", "MEDIUM", "INFO", name="alert_severity_enum"),
