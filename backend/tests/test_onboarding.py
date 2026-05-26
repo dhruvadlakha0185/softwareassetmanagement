@@ -173,8 +173,6 @@ def test_multi_publish_payload_no_longer_has_owner_fields():
     assert not hasattr(payload, "usage_method_id")
 
 
-import pytest
-
 @pytest.mark.asyncio
 async def test_multi_publish_writes_per_item_owner_fields(client, admin_token, db):
     """owner fields on the line item are persisted to the entitlement."""
@@ -219,3 +217,55 @@ async def test_multi_publish_writes_per_item_owner_fields(client, admin_token, d
         assert str(ent.discovery_source_id) == source_id
     if method_id:
         assert str(ent.usage_method_id) == method_id
+
+
+@pytest.mark.asyncio
+async def test_multi_publish_creates_doa_contact_rows(client, admin_token, db):
+    """doa_contact_ids on the line item are persisted to entitlement_doa_contacts."""
+    from sqlalchemy import select, text
+    from app.models.contracts import EntitlementDoaContact
+    from app.models.users import DOAHierarchy
+    import uuid
+
+    # Get or create a doa_hierarchy row
+    result = await db.execute(text("SELECT id FROM doa_hierarchy LIMIT 1"))
+    row = result.first()
+
+    if row is None:
+        doa_id = str(uuid.uuid4())
+        await db.execute(text(
+            "INSERT INTO doa_hierarchy (id, full_name, email) "
+            "VALUES (:id, :full_name, :email)"
+        ), {"id": doa_id, "full_name": "Test DOA Contact", "email": "doa@test.com"})
+        await db.flush()
+    else:
+        doa_id = str(row[0])
+
+    h = {"Authorization": f"Bearer {admin_token}"}
+    payload = {
+        "vendor_name": "TestCo",
+        "po_number": "PO-DOA-TEST-001",
+        "line_items": [
+            {
+                "contract_name": "DOA Test License",
+                "primary_sw_name": "DOATestSW",
+                "doa_contact_ids": [doa_id],
+                "deployment": "cloud",
+                "gxp_flag": "no",
+            }
+        ],
+    }
+    resp = await client.post("/api/v1/onboarding/multi-publish", json=payload, headers=h)
+    assert resp.status_code == 201, resp.text
+    result_data = resp.json()
+    assert len(result_data["created"]) == 1, (
+        f"Expected 1 created, got skipped: {result_data.get('skipped')}"
+    )
+    ent_id = result_data["created"][0]["ent_id"]
+
+    result = await db.execute(
+        select(EntitlementDoaContact).where(EntitlementDoaContact.ent_id == ent_id)
+    )
+    rows = result.scalars().all()
+    assert len(rows) == 1
+    assert str(rows[0].doa_contact_id) == doa_id

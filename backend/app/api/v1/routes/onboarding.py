@@ -441,7 +441,7 @@ async def multi_publish(
             await db.flush()
 
             # ── Insert per-entitlement DOA contacts ───────────────────────
-            for doa_id in item.doa_contact_ids:
+            for doa_id in set(item.doa_contact_ids):
                 db.add(EntitlementDoaContact(ent_id=ent_id, doa_contact_id=doa_id))
 
             # ── Insert price schedule rows (multi-year contracts) ─────────
