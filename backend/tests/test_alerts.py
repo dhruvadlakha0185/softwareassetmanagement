@@ -9,7 +9,7 @@ async def sample_alert(db, admin_token, client):
     h = {"Authorization": f"Bearer {admin_token}"}
     # Create entitlement with high in_use
     publish = (await client.post("/api/v1/onboarding/publish", json={
-        "canonical_name": "AlertTest Software",
+        "primary_sw_name": "AlertTest Software",
         "gxp_flag": "no", "vendor_risk": "LOW", "deployment": "cloud",
         "line_items": [{"contract_name": "AlertTest Sub", "license_type": "subscription", "entitled_count": 100}],
     }, headers=h)).json()
@@ -83,7 +83,7 @@ async def test_dedup_no_duplicate_alerts_same_day(db, admin_token, client):
     """Calling generate_alerts twice on the same day should not create duplicates."""
     h = {"Authorization": f"Bearer {admin_token}"}
     publish = (await client.post("/api/v1/onboarding/publish", json={
-        "canonical_name": "DedupTest Software",
+        "primary_sw_name": "DedupTest Software",
         "gxp_flag": "no", "vendor_risk": "LOW", "deployment": "cloud",
         "line_items": [{"contract_name": "DedupTest Sub", "license_type": "subscription", "entitled_count": 100}],
     }, headers=h)).json()
@@ -101,3 +101,60 @@ async def test_dedup_no_duplicate_alerts_same_day(db, admin_token, client):
     )
     util_alerts = result.scalars().all()
     assert len(util_alerts) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_doa_contacts_returns_per_entitlement_when_set(db, admin_token, client):
+    """Returns per-entitlement contacts when rows exist in entitlement_doa_contacts."""
+    from app.services.alert_generator import get_doa_contacts_for_entitlement
+    from app.models.contracts import EntitlementDoaContact, Entitlement
+    from app.models.users import DOAHierarchy
+
+    # Create an entitlement via publish
+    h = {"Authorization": f"Bearer {admin_token}"}
+    publish = (await client.post("/api/v1/onboarding/publish", json={
+        "primary_sw_name": "DoaPerEntTest Software",
+        "gxp_flag": "no", "vendor_risk": "LOW", "deployment": "cloud",
+        "line_items": [{"contract_name": "DoaPerEntTest Sub", "license_type": "subscription", "entitled_count": 10}],
+    }, headers=h)).json()
+    ent_id = publish["ent_ids"][0]
+
+    # Create a DOA contact
+    doa = DOAHierarchy(
+        full_name="Test DOA Contact",
+        email="doa-per-ent@drl.local",
+        role_label="Manager",
+        business_unit="IT",
+    )
+    db.add(doa)
+    await db.flush()
+
+    # Link DOA contact to entitlement
+    db.add(EntitlementDoaContact(ent_id=ent_id, doa_contact_id=doa.id))
+    await db.flush()
+
+    contacts = await get_doa_contacts_for_entitlement(db, ent_id)
+    assert len(contacts) >= 1
+    assert any(c.id == doa.id for c in contacts)
+
+
+@pytest.mark.asyncio
+async def test_get_doa_contacts_falls_back_to_global_when_none_set(db, admin_token, client):
+    """Returns global DOA list when no per-entitlement rows exist."""
+    from app.services.alert_generator import get_doa_contacts_for_entitlement
+    from app.models.users import DOAHierarchy
+
+    # Ensure at least one global DOA contact exists
+    doa = DOAHierarchy(
+        full_name="Global DOA Fallback",
+        email="doa-global-fallback@drl.local",
+        role_label="Director",
+        business_unit="Finance",
+    )
+    db.add(doa)
+    await db.flush()
+
+    # Use a fake ent_id that has no per-entitlement rows
+    contacts = await get_doa_contacts_for_entitlement(db, "ENT-FAKE-999")
+    # Should fall back to global list
+    assert len(contacts) >= 1

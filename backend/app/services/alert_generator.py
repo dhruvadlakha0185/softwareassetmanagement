@@ -6,7 +6,8 @@ Called by APScheduler daily at midnight UTC, and also manually via POST /reconci
 from datetime import date, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from app.models.contracts import Entitlement, Contract, EntitlementPriceSchedule
+from app.models.contracts import Entitlement, Contract, EntitlementPriceSchedule, EntitlementDoaContact
+from app.models.users import DOAHierarchy
 from app.models.catalog import SoftwareCatalog
 from app.models.alerts import Alert
 
@@ -25,6 +26,23 @@ def _renewal_severity(days: int) -> str:
 
 def _util_severity(util_pct: float) -> str:
     return "HIGH" if util_pct > 100 else "MEDIUM"
+
+
+async def get_doa_contacts_for_entitlement(db: AsyncSession, ent_id: str):
+    """
+    Returns per-entitlement DOA contacts if any are set; falls back to the
+    global doa_hierarchy list so existing entitlements keep alerting.
+    """
+    result = await db.execute(
+        select(DOAHierarchy)
+        .join(EntitlementDoaContact, DOAHierarchy.id == EntitlementDoaContact.doa_contact_id)
+        .where(EntitlementDoaContact.ent_id == ent_id)
+    )
+    contacts = result.scalars().all()
+    if contacts:
+        return contacts
+    result = await db.execute(select(DOAHierarchy))
+    return result.scalars().all()
 
 
 async def sync_active_pricing(db: AsyncSession) -> int:
