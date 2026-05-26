@@ -8,7 +8,7 @@ from sqlalchemy import select, func
 from app.core.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.catalog import SoftwareCatalog, SoftwareAlias
-from app.models.contracts import Contract, Entitlement, OnboardingDraft
+from app.models.contracts import Contract, Entitlement, OnboardingDraft, EntitlementPriceSchedule
 from app.schemas.onboarding import (
     DraftSave, DraftOut, PublishPayload, PublishOut,
     MultiPublishPayload, MultiPublishOut, MultiPublishCreated,
@@ -19,13 +19,89 @@ router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 auth = Depends(get_current_user)
 
 
-async def _next_sw_id(db: AsyncSession) -> str:
+def _publisher_prefix(publisher: str | None) -> str:
+    """Derive a 2-4 char uppercase prefix from a publisher name.
+
+    Rules (applied in order):
+    - Known overrides first (SAP SE → SAP, etc.)
+    - Split on spaces/punctuation, take first letter of each word up to 3 words
+    - Collapse to uppercase, max 4 chars, min 2 chars
+    """
+    OVERRIDES = {
+        "microsoft": "MS",
+        "adobe": "ADO",
+        "sap se": "SAP",
+        "sap": "SAP",
+        "oracle": "ORC",
+        "salesforce": "SFD",
+        "servicenow": "SNW",
+        "veeva systems": "VVA",
+        "veeva": "VVA",
+        "ibm": "IBM",
+        "atlassian": "ATL",
+        "autodesk": "ADS",
+        "ansys": "ANS",
+        "siemens": "SIE",
+        "aveva": "AVA",
+        "hexagon": "HEX",
+        "opentext": "OTX",
+        "broadcom": "BDC",
+        "citrix": "CTX",
+        "vmware": "VMW",
+        "tableau": "TBL",
+        "mimecast": "MMC",
+        "crowdstrike": "CRS",
+        "zscaler": "ZSC",
+        "palo alto networks": "PAN",
+        "palo alto": "PAN",
+        "fortinet": "FTN",
+        "trend micro": "TMI",
+        "zoom": "ZOM",
+        "slack": "SLK",
+        "box": "BOX",
+        "dropbox": "DBX",
+        "github": "GHB",
+        "gitlab": "GLB",
+        "jira": "JRA",
+        "docusign": "DCU",
+        "workday": "WKD",
+        "successfactors": "SCF",
+        "sap successfactors": "SCF",
+    }
+    if not publisher:
+        return "SW"
+    key = publisher.strip().lower()
+    if key in OVERRIDES:
+        return OVERRIDES[key]
+    # Build from initials of each word (max 3 words)
+    import re
+    words = re.split(r"[\s\-,./]+", key)
+    words = [w for w in words if w and not w.isdigit()]
+    if not words:
+        return "SW"
+    prefix = "".join(w[0] for w in words[:3]).upper()
+    return prefix if len(prefix) >= 2 else (prefix + words[0][1:3].upper())[:4]
+
+
+async def _next_sw_id(db: AsyncSession, publisher: str | None = None) -> str:
+    prefix = _publisher_prefix(publisher)
+    pattern = f"{prefix}-%"
     result = await db.execute(
-        select(func.max(SoftwareCatalog.sw_id)).where(SoftwareCatalog.sw_id.like("SW-%"))
+        select(func.max(SoftwareCatalog.sw_id)).where(SoftwareCatalog.sw_id.like(pattern))
     )
     max_id = result.scalar_one_or_none()
-    n = int(max_id.split("-")[1]) + 1 if max_id else 1
-    return f"SW-{n:03d}"
+    if max_id:
+        try:
+            n = int(max_id.split("-")[1]) + 1
+        except (IndexError, ValueError):
+            n = 1
+    else:
+        n = 1
+    while True:
+        candidate = f"{prefix}-{n:03d}"
+        if not await db.get(SoftwareCatalog, candidate):
+            return candidate
+        n += 1
 
 
 async def _next_ent_id(db: AsyncSession) -> str:
@@ -136,15 +212,15 @@ async def publish_onboarding(
         sw_id = body.sw_id
     else:
         existing = (await db.execute(
-            select(SoftwareCatalog).where(SoftwareCatalog.canonical_name == body.canonical_name)
+            select(SoftwareCatalog).where(SoftwareCatalog.primary_sw_name == body.primary_sw_name)
         )).scalar_one_or_none()
         if existing:
             sw_id = existing.sw_id
         else:
-            sw_id = await _next_sw_id(db)
+            sw_id = await _next_sw_id(db, body.publisher)
             sw = SoftwareCatalog(
                 sw_id=sw_id,
-                canonical_name=body.canonical_name,
+                primary_sw_name=body.primary_sw_name,
                 publisher=body.publisher,
                 category_id=body.category_id,
                 sub_category_id=body.sub_category_id,
@@ -170,7 +246,8 @@ async def publish_onboarding(
             )
         )).scalar_one_or_none()
         if not existing_alias:
-            db.add(SoftwareAlias(sw_id=sw_id, alias_name=alias_name, source_name="onboarding"))
+            from datetime import datetime as _dt
+            db.add(SoftwareAlias(sw_id=sw_id, alias_name=alias_name, date_mapped=_dt.utcnow()))
 
     # Create contract record
     contract = Contract(
@@ -200,10 +277,11 @@ async def publish_onboarding(
             sw_id=sw_id,
             contract_id=contract.id,
             contract_name=item.contract_name,
-            license_type=item.license_type,
+            license_type_id=item.license_type_id,
             entitled_count=item.entitled_count,
-            unit_cost_inr=item.unit_cost_inr,
-            annual_cost_inr=item.annual_cost_inr,
+            unit_cost=item.unit_cost,
+            annual_cost=item.annual_cost,
+            notes=item.notes,
             region_id=item.region_id,
             discovery_source_id=item.discovery_source_id,
             usage_method_id=item.usage_method_id,
@@ -218,7 +296,7 @@ async def publish_onboarding(
     await log_event(
         db, current_user.id, "SOFTWARE_ONBOARDED", "software_catalog", sw_id,
         sw_id=sw_id,
-        after={"canonical_name": body.canonical_name, "contract_id": str(contract.id), "ent_ids": ent_ids},
+        after={"primary_sw_name": body.primary_sw_name, "contract_id": str(contract.id), "ent_ids": ent_ids},
         is_gxp=(body.gxp_flag != "no"),
     )
 
@@ -258,32 +336,23 @@ async def multi_publish(
             else:
                 existing = (await db.execute(
                     select(SoftwareCatalog).where(
-                        SoftwareCatalog.canonical_name == item.canonical_name
+                        SoftwareCatalog.primary_sw_name == item.primary_sw_name
                     )
                 )).scalar_one_or_none()
                 if existing:
                     sw_id = existing.sw_id
                 else:
-                    max_sw = (await db.execute(
-                        select(func.max(SoftwareCatalog.sw_id)).where(SoftwareCatalog.sw_id.like("SW-%"))
-                    )).scalar_one_or_none()
-                    n = int(max_sw.split("-")[1]) + 1 if max_sw else 1
-                    while True:
-                        candidate = f"SW-{n:03d}"
-                        if not await db.get(SoftwareCatalog, candidate):
-                            sw_id = candidate
-                            break
-                        n += 1
+                    publisher = item.publisher or body.vendor_name
+                    sw_id = await _next_sw_id(db, publisher)
                     sw_entry = SoftwareCatalog(
                         sw_id=sw_id,
-                        canonical_name=item.canonical_name,
-                        publisher=item.publisher or body.vendor_name,
+                        primary_sw_name=item.primary_sw_name,
+                        publisher=publisher,
                         category_id=item.category_id,
                         sub_category_id=item.sub_category_id,
                         gxp_flag=item.gxp_flag,
                         vendor_risk=item.vendor_risk,
                         deployment=item.deployment,
-                        region_id=item.region_id,
                         app_owner_id=body.app_owner_id,
                         secondary_owner_id=body.secondary_owner_id,
                         notes=item.notes,
@@ -291,9 +360,10 @@ async def multi_publish(
                     )
                     db.add(sw_entry)
                     if item.aliases:
+                        from datetime import datetime as _dt
                         for alias in item.aliases:
                             if alias.strip():
-                                db.add(SoftwareAlias(sw_id=sw_id, alias_name=alias.strip(), source_name="onboarding"))
+                                db.add(SoftwareAlias(sw_id=sw_id, alias_name=alias.strip(), date_mapped=_dt.utcnow()))
                     is_new_sw = True
 
             # ── Create Contract (one per line item, shared header fields) ─
@@ -306,6 +376,9 @@ async def multi_publish(
                 end_date=body.end_date,
                 total_value_inr=body.total_value_inr,
                 auto_renewal_clause=body.auto_renewal_clause,
+                renewal_alert_extra_days=body.renewal_alert_extra_days or None,
+                business_units=item.business_units or None,
+                currency=body.currency or "INR",
                 storage_backend="local",
                 created_by=current_user.id,
             )
@@ -337,13 +410,15 @@ async def multi_publish(
                 contract_id=contract.id,
                 contract_name=item.contract_name,
                 metric_id=item.metric_id,
-                license_type=item.license_type,
+                license_type_id=item.license_type_id,
                 entitled_count=item.entitled_count,
                 in_use_count=0,
-                unit_cost_inr=item.unit_cost_inr,
-                annual_cost_inr=item.annual_cost_inr,
+                unit_cost=item.unit_cost,
+                annual_cost=item.annual_cost,
+                notes=item.notes,
                 vendor_id=contract.vendor_id,
-                region_id=item.region_id,
+                regions_json=item.regions or None,
+                business_units=item.business_units or None,
                 discovery_source_id=body.discovery_source_id,
                 usage_method_id=body.usage_method_id,
                 app_owner_id=body.app_owner_id,
@@ -352,11 +427,29 @@ async def multi_publish(
             db.add(ent)
             await db.flush()
 
+            # ── Insert price schedule rows (multi-year contracts) ─────────
+            if item.price_schedule:
+                yr1 = next((s for s in item.price_schedule if s.year_number == 1), None)
+                if yr1:
+                    ent.unit_cost = yr1.unit_cost
+                    ent.annual_cost = yr1.annual_cost
+                    ent.entitled_count = yr1.entitled_count
+                for sched in item.price_schedule:
+                    db.add(EntitlementPriceSchedule(
+                        ent_id=ent_id,
+                        year_number=sched.year_number,
+                        effective_from=sched.effective_from,
+                        effective_to=sched.effective_to,
+                        entitled_count=sched.entitled_count,
+                        unit_cost=sched.unit_cost,
+                        annual_cost=sched.annual_cost,
+                    ))
+
             created.append(MultiPublishCreated(
                 sw_id=sw_id,
                 ent_id=ent_id,
                 contract_id=contract.id,
-                canonical_name=item.canonical_name,
+                primary_sw_name=item.primary_sw_name,
                 contract_name=item.contract_name,
                 is_new_sw=is_new_sw,
             ))
@@ -440,7 +533,7 @@ def _parse_bulk_xlsx(data: bytes) -> list[dict]:
     raw_headers = [str(h).strip() if h else f"col{i}" for i, h in enumerate(all_rows[0])]
     # Normalise headers to simple keys
     key_map = {
-        "Software Name *": "canonical_name",
+        "Software Name *": "primary_sw_name",
         "SW_ID (leave blank=new)": "sw_id",
         "Publisher": "publisher",
         "Category": "category_name",
@@ -469,7 +562,7 @@ def _parse_bulk_xlsx(data: bytes) -> list[dict]:
         if not row or all(c is None or str(c).strip() == "" for c in row):
             continue
         d = {keys[i]: (str(row[i]).strip() if row[i] is not None else "") for i in range(min(len(keys), len(row)))}
-        if not d.get("canonical_name") or not d.get("contract_name"):
+        if not d.get("primary_sw_name") or not d.get("contract_name"):
             continue  # skip rows missing required fields
         result.append(d)
     return result
@@ -511,7 +604,7 @@ async def bulk_onboard(
 
     for idx, row in enumerate(rows, 1):
         try:
-            canonical = row["canonical_name"]
+            canonical = row["primary_sw_name"]
             contract_name = row["contract_name"]
 
             # ── Resolve SW_ID ──────────────────────────────────────────────
@@ -525,25 +618,12 @@ async def bulk_onboard(
             else:
                 # Check if canonical name already exists
                 existing = (await db.execute(
-                    select(SoftwareCatalog).where(SoftwareCatalog.canonical_name == canonical)
+                    select(SoftwareCatalog).where(SoftwareCatalog.primary_sw_name == canonical)
                 )).scalar_one_or_none()
                 if existing:
                     sw_id = existing.sw_id
                 else:
-                    # Create new SW entry
-                    max_sw = (await db.execute(
-                        select(func.max(SoftwareCatalog.sw_id)).where(SoftwareCatalog.sw_id.like("SW-%"))
-                    )).scalar_one_or_none()
-                    n = int(max_sw.split("-")[1]) + 1 if max_sw else 1
-                    # Find used SW-IDs to avoid sequence gaps causing duplicates
-                    while True:
-                        candidate = f"SW-{n:03d}"
-                        existing_check = await db.get(SoftwareCatalog, candidate)
-                        if not existing_check:
-                            sw_id = candidate
-                            break
-                        n += 1
-
+                    sw_id = await _next_sw_id(db, row.get("publisher") or None)
                     gxp_raw = row.get("gxp", "no").lower()
                     gxp_flag = "yes_21cfr" if gxp_raw == "yes" else "no"
                     vendor_risk = row.get("vendor_risk", "LOW").upper()
@@ -587,7 +667,7 @@ async def bulk_onboard(
 
                     sw_entry = SoftwareCatalog(
                         sw_id=sw_id,
-                        canonical_name=canonical,
+                        primary_sw_name=canonical,
                         publisher=row.get("publisher") or None,
                         category_id=cat_id,
                         sub_category_id=sub_cat_id,
@@ -653,9 +733,13 @@ async def bulk_onboard(
                     break
                 ent_n += 1
 
-            lic_type = row.get("license_type", "subscription").lower()
-            if lic_type not in ("subscription", "perpetual"):
-                lic_type = "subscription"
+            # Resolve license type from license_types table
+            from app.models.masters import LicenseType
+            lic_type_str = row.get("license_type", "subscription").lower()
+            lt_row = (await db.execute(
+                select(LicenseType).where(LicenseType.license_type == lic_type_str)
+            )).scalar_one_or_none()
+            license_type_id_val = lt_row.id if lt_row else None
 
             ent = Entitlement(
                 ent_id=ent_id,
@@ -663,11 +747,12 @@ async def bulk_onboard(
                 contract_id=contract.id,
                 contract_name=contract_name,
                 metric_id=metric_id,
-                license_type=lic_type,
+                license_type_id=license_type_id_val,
                 entitled_count=int(row["entitled_count"]) if row.get("entitled_count") else None,
                 in_use_count=0,
-                unit_cost_inr=int(row["unit_cost_inr"]) if row.get("unit_cost_inr") else None,
-                annual_cost_inr=int(row["annual_cost_inr"]) if row.get("annual_cost_inr") else None,
+                unit_cost=int(row["unit_cost_inr"]) if row.get("unit_cost_inr") else None,
+                annual_cost=int(row["annual_cost_inr"]) if row.get("annual_cost_inr") else None,
+                notes=row.get("notes") or None,
                 status="ACTIVE",
             )
             db.add(ent)
@@ -675,7 +760,7 @@ async def bulk_onboard(
             created_ent.append(ent_id)
 
         except Exception as e:
-            skipped.append(f"Row {idx} ({row.get('canonical_name','?')}): {e}")
+            skipped.append(f"Row {idx} ({row.get('primary_sw_name','?')}): {e}")
 
     await db.commit()
     return {
