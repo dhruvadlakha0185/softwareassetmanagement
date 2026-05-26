@@ -5,7 +5,7 @@ from sqlalchemy import select, func
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.catalog import SoftwareCatalog
-from app.models.contracts import Entitlement, Contract
+from app.models.contracts import Entitlement, Contract, EntitlementPriceSchedule
 from app.models.masters import Category
 from app.models.alerts import Alert, AlertRead
 from app.models.discovery import DiscoveryRecord
@@ -40,7 +40,7 @@ async def get_summary(
     ents = ents_result.scalars().all()
 
     total_entitlements = len(ents)
-    total_annual_cost  = sum(e.annual_cost_inr or 0 for e in ents)
+    total_annual_cost  = sum(e.annual_cost or 0 for e in ents)
     over_deployed      = sum(1 for e in ents if e.status == "OVER_DEPLOYED")
     watch              = sum(1 for e in ents if e.status == "WATCH")
     under_utilised     = sum(1 for e in ents if e.status == "UNDER_UTILISED")
@@ -84,7 +84,7 @@ async def get_summary(
         is_gxp = (sw.gxp_flag != "no") if sw else False
         expiring_contracts.append(ContractExpiring(
             sw_id=ent.sw_id,
-            canonical_name=sw.canonical_name if sw else ent.sw_id,
+            primary_sw_name=sw.primary_sw_name if sw else ent.sw_id,
             contract_name=ent.contract_name,
             end_date=c.end_date,
             days_to_expiry=days,
@@ -108,7 +108,7 @@ async def get_summary(
         util_items.append(UtilisationItem(
             ent_id=ent.ent_id,
             sw_id=ent.sw_id,
-            canonical_name=sw.canonical_name if sw else ent.sw_id,
+            primary_sw_name=sw.primary_sw_name if sw else ent.sw_id,
             contract_name=ent.contract_name,
             entitled_count=ent.entitled_count,
             in_use_count=in_use,
@@ -121,7 +121,7 @@ async def get_summary(
     # ── Spend by category ─────────────────────────────────────────────────────
     category_spend: dict[str, int] = {}
     for ent in ents:
-        if not ent.annual_cost_inr:
+        if not ent.annual_cost:
             continue
         if ent.sw_id not in sw_name_cache:
             sw_name_cache[ent.sw_id] = await db.get(SoftwareCatalog, ent.sw_id)
@@ -131,7 +131,7 @@ async def get_summary(
         else:
             cat = await db.get(Category, sw.category_id)
             cat_name = cat.name if cat else "Uncategorised"
-        category_spend[cat_name] = category_spend.get(cat_name, 0) + (ent.annual_cost_inr or 0)
+        category_spend[cat_name] = category_spend.get(cat_name, 0) + (ent.annual_cost or 0)
 
     # Sort named categories first (descending by spend), then Uncategorised last
     named = sorted(
@@ -156,14 +156,24 @@ async def get_summary(
 
     # ── Potential savings = Σ unit_cost × (entitled - in_use) for UNDER_UTILISED
     potential_savings = sum(
-        (e.unit_cost_inr or 0) * max(0, (e.entitled_count or 0) - (e.in_use_count or 0))
+        (e.unit_cost or 0) * max(0, (e.entitled_count or 0) - (e.in_use_count or 0))
         for e in ents if e.status == "UNDER_UTILISED"
+    )
+
+    # ── Total committed value = all schedule rows + unscheduled entitlements ──
+    sched_result = await db.execute(select(EntitlementPriceSchedule))
+    all_schedules = sched_result.scalars().all()
+    scheduled_ent_ids = {s.ent_id for s in all_schedules}
+    total_committed_value = sum(s.annual_cost or 0 for s in all_schedules)
+    total_committed_value += sum(
+        (e.annual_cost or 0) for e in ents if e.ent_id not in scheduled_ent_ids
     )
 
     return DashboardSummaryOut(
         total_sw=total_sw,
         total_entitlements=total_entitlements,
         total_annual_cost_inr=total_annual_cost,
+        total_committed_value_inr=total_committed_value,
         potential_savings_inr=potential_savings,
         over_deployed_count=over_deployed,
         watch_count=watch,

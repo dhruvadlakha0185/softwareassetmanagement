@@ -6,7 +6,7 @@ from pydantic import BaseModel
 class UtilisationItem(BaseModel):
     ent_id: str
     sw_id: str
-    canonical_name: str
+    primary_sw_name: str
     contract_name: str | None = None
     entitled_count: int
     in_use_count: int
@@ -16,7 +16,7 @@ class UtilisationItem(BaseModel):
 
 class ContractExpiring(BaseModel):
     sw_id: str
-    canonical_name: str
+    primary_sw_name: str
     contract_name: str | None = None
     end_date: date
     days_to_expiry: int
@@ -43,6 +43,7 @@ class DashboardSummaryOut(BaseModel):
     total_sw: int
     total_entitlements: int
     total_annual_cost_inr: int
+    total_committed_value_inr: int
     over_deployed_count: int
     watch_count: int
     under_utilised_count: int
