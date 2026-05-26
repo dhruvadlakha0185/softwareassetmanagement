@@ -56,6 +56,7 @@ async def sync_active_pricing(db: AsyncSession) -> int:
             ent.annual_cost = sched.annual_cost
             ent.entitled_count = sched.entitled_count
             synced += 1
+    await db.commit()
     return synced
 
 
@@ -122,6 +123,7 @@ async def generate_price_change_alerts(db: AsyncSession) -> int:
                 "new_unit_cost": sched.unit_cost,
                 "prev_annual_cost": prev.annual_cost if prev else None,
                 "new_annual_cost": sched.annual_cost,
+                "contract_id": str(contract.id) if contract else None,
             },
             is_gxp=(sw.gxp_flag != "no") if sw else False,
         ))
