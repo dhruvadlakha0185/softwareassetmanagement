@@ -161,11 +161,19 @@ async def get_summary(
     )
 
     # ── Total committed value = all schedule rows + unscheduled entitlements ──
-    sched_result = await db.execute(select(EntitlementPriceSchedule))
-    all_schedules = sched_result.scalars().all()
-    scheduled_ent_ids = {s.ent_id for s in all_schedules}
-    total_committed_value = sum(s.annual_cost or 0 for s in all_schedules)
-    total_committed_value += sum(
+    # Sum of all schedule rows — push aggregation to DB
+    sched_sum_result = await db.execute(
+        select(func.coalesce(func.sum(EntitlementPriceSchedule.annual_cost), 0))
+    )
+    schedule_total = sched_sum_result.scalar() or 0
+
+    # ent_ids that have at least one schedule row
+    scheduled_ids_result = await db.execute(
+        select(EntitlementPriceSchedule.ent_id).distinct()
+    )
+    scheduled_ent_ids = {row[0] for row in scheduled_ids_result.all()}
+
+    total_committed_value = schedule_total + sum(
         (e.annual_cost or 0) for e in ents if e.ent_id not in scheduled_ent_ids
     )
 
