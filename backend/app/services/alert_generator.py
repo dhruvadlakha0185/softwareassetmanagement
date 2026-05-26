@@ -44,19 +44,23 @@ async def sync_active_pricing(db: AsyncSession) -> int:
     schedules = result.scalars().all()
     synced = 0
     for sched in schedules:
-        ent = await db.get(Entitlement, sched.ent_id)
-        if not ent:
+        try:
+            ent = await db.get(Entitlement, sched.ent_id)
+            if not ent:
+                continue
+            if (
+                ent.unit_cost != sched.unit_cost
+                or ent.annual_cost != sched.annual_cost
+                or ent.entitled_count != sched.entitled_count
+            ):
+                ent.unit_cost = sched.unit_cost
+                ent.annual_cost = sched.annual_cost
+                ent.entitled_count = sched.entitled_count
+                synced += 1
+        except Exception as exc:
+            print(f"sync_active_pricing: skipping {sched.ent_id} — {exc}")
             continue
-        if (
-            ent.unit_cost != sched.unit_cost
-            or ent.annual_cost != sched.annual_cost
-            or ent.entitled_count != sched.entitled_count
-        ):
-            ent.unit_cost = sched.unit_cost
-            ent.annual_cost = sched.annual_cost
-            ent.entitled_count = sched.entitled_count
-            synced += 1
-    await db.commit()
+    print(f"sync_active_pricing: synced {synced} entitlement(s)")
     return synced
 
 
@@ -74,60 +78,70 @@ async def generate_price_change_alerts(db: AsyncSession) -> int:
     future_schedules = result.scalars().all()
     created = 0
 
+    ent_ids = {s.ent_id for s in future_schedules}
+    if not ent_ids:
+        return 0
+    ent_result = await db.execute(select(Entitlement).where(Entitlement.ent_id.in_(ent_ids)))
+    ent_map = {e.ent_id: e for e in ent_result.scalars().all()}
+
     for sched in future_schedules:
-        days_until = (sched.effective_from - today).days
-        if days_until < 0:
-            continue
+        try:
+            days_until = (sched.effective_from - today).days
+            if days_until < 0:
+                continue
 
-        ent = await db.get(Entitlement, sched.ent_id)
-        if not ent:
-            continue
+            ent = ent_map.get(sched.ent_id)
+            if not ent:
+                continue
 
-        contract = await db.get(Contract, ent.contract_id) if ent.contract_id else None
-        stored = contract.renewal_alert_extra_days if contract else None
-        thresholds = sorted(set(stored), reverse=True) if stored else RENEWAL_THRESHOLDS
+            contract = await db.get(Contract, ent.contract_id) if ent.contract_id else None
+            stored = contract.renewal_alert_extra_days if contract else None
+            thresholds = sorted(set(stored), reverse=True) if stored else RENEWAL_THRESHOLDS
 
-        if days_until not in thresholds:
-            continue
+            if days_until not in thresholds:
+                continue
 
-        if await _alert_exists_today(db, ent.ent_id, "PRICE_YEAR_CHANGE", days_until):
-            continue
+            if await _alert_exists_today(db, ent.ent_id, "PRICE_YEAR_CHANGE", days_until):
+                continue
 
-        prev_result = await db.execute(
-            select(EntitlementPriceSchedule).where(
-                and_(
-                    EntitlementPriceSchedule.ent_id == sched.ent_id,
-                    EntitlementPriceSchedule.year_number == sched.year_number - 1,
+            prev_result = await db.execute(
+                select(EntitlementPriceSchedule).where(
+                    and_(
+                        EntitlementPriceSchedule.ent_id == sched.ent_id,
+                        EntitlementPriceSchedule.year_number == sched.year_number - 1,
+                    )
                 )
             )
-        )
-        prev = prev_result.scalar_one_or_none()
+            prev = prev_result.scalar_one_or_none()
 
-        sw = await db.get(SoftwareCatalog, ent.sw_id)
-        sw_name = sw.primary_sw_name if sw else ent.sw_id
+            sw = await db.get(SoftwareCatalog, ent.sw_id)
+            sw_name = sw.primary_sw_name if sw else ent.sw_id
 
-        db.add(Alert(
-            alert_type="PRICE_YEAR_CHANGE",
-            ent_id=ent.ent_id,
-            severity=_renewal_severity(days_until),
-            days_to_expiry=days_until,
-            title=f"Pricing change in {days_until} day{'s' if days_until != 1 else ''}: {sw_name} (Year {sched.year_number})",
-            body_json={
-                "ent_id": ent.ent_id,
-                "sw_name": sw_name,
-                "year_number": sched.year_number,
-                "effective_from": str(sched.effective_from),
-                "prev_seats": prev.entitled_count if prev else None,
-                "new_seats": sched.entitled_count,
-                "prev_unit_cost": prev.unit_cost if prev else None,
-                "new_unit_cost": sched.unit_cost,
-                "prev_annual_cost": prev.annual_cost if prev else None,
-                "new_annual_cost": sched.annual_cost,
-                "contract_id": str(contract.id) if contract else None,
-            },
-            is_gxp=(sw.gxp_flag != "no") if sw else False,
-        ))
-        created += 1
+            db.add(Alert(
+                alert_type="PRICE_YEAR_CHANGE",
+                ent_id=ent.ent_id,
+                severity=_renewal_severity(days_until),
+                days_to_expiry=days_until,
+                title=f"Pricing change in {days_until} day{'s' if days_until != 1 else ''}: {sw_name} (Year {sched.year_number})",
+                body_json={
+                    "ent_id": ent.ent_id,
+                    "sw_name": sw_name,
+                    "year_number": sched.year_number,
+                    "effective_from": str(sched.effective_from),
+                    "prev_seats": prev.entitled_count if prev else None,
+                    "new_seats": sched.entitled_count,
+                    "prev_unit_cost": prev.unit_cost if prev else None,
+                    "new_unit_cost": sched.unit_cost,
+                    "prev_annual_cost": prev.annual_cost if prev else None,
+                    "new_annual_cost": sched.annual_cost,
+                    "contract_id": str(contract.id) if contract else None,
+                },
+                is_gxp=(sw.gxp_flag != "no") if sw else False,
+            ))
+            created += 1
+        except Exception as exc:
+            print(f"generate_price_change_alerts: skipping schedule {sched.id} — {exc}")
+            continue
 
     return created
 

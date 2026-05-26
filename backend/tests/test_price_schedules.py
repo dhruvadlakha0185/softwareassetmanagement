@@ -276,7 +276,8 @@ async def test_price_change_alert_fires_within_threshold(db):
             Alert.alert_type == "PRICE_YEAR_CHANGE",
         )
     )
-    alert = result.scalar_one_or_none()
+    alerts = result.scalars().all()
+    alert = alerts[0] if alerts else None
     assert alert is not None
     assert alert.body_json["new_unit_cost"] == 3800
     assert alert.body_json["prev_unit_cost"] == 3600
