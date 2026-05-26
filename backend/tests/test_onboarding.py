@@ -1,6 +1,7 @@
 import io
 import pytest
 from unittest.mock import AsyncMock, patch
+from app.models.contracts import EntitlementDoaContact
 
 MOCK_EXTRACTION = {
     "vendor_name": "Microsoft Corporation",
@@ -86,7 +87,7 @@ async def test_draft_lifecycle(client, admin_token):
 async def test_publish_creates_sw_contract_entitlement(client, admin_token):
     h = {"Authorization": f"Bearer {admin_token}"}
     payload = {
-        "canonical_name": "Publish Test Software",
+        "primary_sw_name": "Publish Test Software",
         "publisher": "Pub Corp",
         "gxp_flag": "no",
         "vendor_risk": "LOW",
@@ -115,7 +116,7 @@ async def test_publish_creates_sw_contract_entitlement(client, admin_token):
 
     # Verify SW entry exists with aliases
     catalog_entry = (await client.get(f"/api/v1/catalog/{data['sw_id']}")).json()
-    assert catalog_entry["canonical_name"] == "Publish Test Software"
+    assert catalog_entry["primary_sw_name"] == "Publish Test Software"
     alias_names = [a["alias_name"] for a in catalog_entry["aliases"]]
     assert "PubTest" in alias_names
     # No cleanup needed — contracts FK prevents catalog delete; test DB drops all at session end
@@ -125,13 +126,13 @@ async def test_publish_maps_to_existing_sw(client, admin_token):
     h = {"Authorization": f"Bearer {admin_token}"}
     # create SW first
     sw = (await client.post("/api/v1/catalog", json={
-        "canonical_name": "Existing SW For Publish",
+        "primary_sw_name": "Existing SW For Publish",
         "gxp_flag": "no", "vendor_risk": "LOW", "deployment": "cloud",
     }, headers=h)).json()
     sw_id = sw["sw_id"]
 
     payload = {
-        "canonical_name": "Existing SW For Publish",
+        "primary_sw_name": "Existing SW For Publish",
         "sw_id": sw_id,
         "line_items": [
             {"contract_name": "Existing SW Sub", "license_type": "subscription", "entitled_count": 50}
@@ -141,3 +142,8 @@ async def test_publish_maps_to_existing_sw(client, admin_token):
     assert resp.status_code == 201
     assert resp.json()["sw_id"] == sw_id
     # No cleanup — contracts FK prevents catalog delete; test DB drops all at session end
+
+
+def test_entitlement_doa_contact_model_has_expected_columns():
+    cols = {c.key for c in EntitlementDoaContact.__table__.columns}
+    assert {"id", "ent_id", "doa_contact_id"}.issubset(cols)

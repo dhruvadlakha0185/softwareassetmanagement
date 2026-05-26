@@ -57,6 +57,7 @@ class Entitlement(Base):
     usage_method_id = Column(UUID(as_uuid=True), ForeignKey("usage_update_methods.id"), nullable=True)
     vendor_id = Column(UUID(as_uuid=True), ForeignKey("vendors.id"), nullable=True)
     app_owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    secondary_owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     status = Column(
         SAEnum("ACTIVE", "EXPIRED", "WATCH", "OVER_DEPLOYED", "UNDER_UTILISED", "OK", name="entitlement_status_enum"),
         nullable=False,
@@ -90,3 +91,11 @@ class OnboardingDraft(Base):
     current_step = Column(Integer, default=1)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EntitlementDoaContact(Base):
+    __tablename__ = "entitlement_doa_contacts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ent_id = Column(String(20), ForeignKey("entitlements.ent_id", ondelete="CASCADE"), nullable=False)
+    doa_contact_id = Column(UUID(as_uuid=True), ForeignKey("doa_hierarchy.id", ondelete="CASCADE"), nullable=False)
