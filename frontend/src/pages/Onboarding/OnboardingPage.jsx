@@ -1255,7 +1255,14 @@ function ManualFlow({ onBack }) {
 
   const updateItem = (id, updated) => setLineItems(ls => ls.map(l => l.id === id ? updated : l));
   const removeItem = (id) => setLineItems(ls => ls.filter(l => l.id !== id));
-  const addItem = () => setLineItems(ls => [...ls, newItem(ls.length)]);
+  const addItem = () => setLineItems(ls => {
+    const item = newItem(ls.length);
+    const rows = buildYearRows(meta.startDate, meta.endDate);
+    if (rows.length > 0) {
+      item.priceSchedule = rows;
+    }
+    return [...ls, item];
+  });
 
   const isItemComplete = (l) =>
     l.contractName && l.primarySwName && l.licenseTypeId && l.metricId &&
@@ -1320,16 +1327,18 @@ function ManualFlow({ onBack }) {
           category_id: li.categoryId || undefined,
           sub_category_id: li.subCategoryId || undefined,
           vendor_risk: li.vendorRisk,
-          price_schedule: li.priceSchedule && li.priceSchedule.length > 1
-            ? li.priceSchedule.map(r => ({
-                year_number: r.year,
-                effective_from: r.from,
-                effective_to: r.to,
-                entitled_count: parseInt(r.seats) || 0,
-                unit_cost: parseInt(r.unitCost) || 0,
-                annual_cost: parseInt(r.annualCost) || (parseInt(r.seats) * parseInt(r.unitCost)) || 0,
-              }))
-            : undefined,
+          price_schedule: (() => {
+            const validRows = (li.priceSchedule || []).filter(r => r.seats && r.unitCost);
+            if (validRows.length <= 1) return undefined;
+            return validRows.map(r => ({
+              year_number: r.year,
+              effective_from: r.from,
+              effective_to: r.to,
+              entitled_count: parseInt(r.seats) || 0,
+              unit_cost: parseInt(r.unitCost) || 0,
+              annual_cost: parseInt(r.annualCost) || ((parseInt(r.seats) * parseInt(r.unitCost)) || 0),
+            }));
+          })(),
         })),
       };
       const result = await multiPublish(payload);
