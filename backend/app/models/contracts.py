@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Date, ForeignKey, Text, BigInteger, Integer, Enum as SAEnum
+from sqlalchemy import Column, String, Boolean, DateTime, Date, ForeignKey, Text, BigInteger, Integer, Enum as SAEnum, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.models.base import Base
 
@@ -95,6 +95,9 @@ class OnboardingDraft(Base):
 
 class EntitlementDoaContact(Base):
     __tablename__ = "entitlement_doa_contacts"
+    __table_args__ = (
+        UniqueConstraint("ent_id", "doa_contact_id", name="uq_ent_doa_contact"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     ent_id = Column(String(20), ForeignKey("entitlements.ent_id", ondelete="CASCADE"), nullable=False)
