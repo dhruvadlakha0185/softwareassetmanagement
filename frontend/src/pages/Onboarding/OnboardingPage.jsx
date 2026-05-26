@@ -20,6 +20,11 @@ function newItem(idx) {
     categoryId: "", subCategoryId: "", vendorRisk: "LOW",
     aiEntitled: null,
     priceSchedule: [],
+    appOwnerId: "",
+    secondaryOwnerId: "",
+    doaContactIds: [],
+    discoverySourceId: "",
+    usageMethodId: "",
   };
 }
 
@@ -29,18 +34,31 @@ function buildYearRows(startDate, endDate, existingSchedule = []) {
   if (!startDate || !endDate) return [];
   const start = new Date(startDate);
   const end = new Date(endDate);
-  const numYears = Math.ceil((end - start) / (1000 * 60 * 60 * 24 * 365));
+  // Count years: year N is included only if its start (start + N-1 years) is strictly before end.
+  // This means exact anniversaries (end == Nth anniversary) do NOT add an extra year row.
+  let numYears = 0;
+  while (true) {
+    const yearStart = new Date(start);
+    yearStart.setFullYear(yearStart.getFullYear() + numYears);
+    if (yearStart < end) numYears++;
+    else break;
+  }
   if (numYears <= 1) return [];
 
   return Array.from({ length: numYears }, (_, i) => {
     const yr = i + 1;
     const fromD = new Date(start);
     fromD.setFullYear(fromD.getFullYear() + i);
-    const toD = new Date(start);
-    toD.setFullYear(toD.getFullYear() + yr);
-    toD.setDate(toD.getDate() - 1);
     const from = fromD.toISOString().split("T")[0];
-    const to = toD.toISOString().split("T")[0];
+    let to;
+    if (yr === numYears) {
+      to = endDate;
+    } else {
+      const toD = new Date(start);
+      toD.setFullYear(toD.getFullYear() + yr);
+      toD.setDate(toD.getDate() - 1);
+      to = toD.toISOString().split("T")[0];
+    }
     const existing = existingSchedule.find(r => r.year === yr);
     return existing
       ? { ...existing, from, to }
@@ -73,8 +91,6 @@ function fmtCost(n, currency = "INR") {
   if (isNaN(v)) return "";
   const sym = currencySymbol(currency);
   if (currency === "INR") {
-    if (v >= 10_000_000) return `${sym}${(v / 10_000_000).toFixed(2)} Cr`;
-    if (v >= 100_000)    return `${sym}${(v / 100_000).toFixed(0)}L`;
     return `${sym}${v.toLocaleString("en-IN")}`;
   }
   return `${sym}${v.toLocaleString()}`;
@@ -408,7 +424,7 @@ function PriceScheduleTable({ rows, onChange, currency = "INR" }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "var(--surf)", borderBottom: "2px solid var(--bdr)" }}>
-                {["Year", "From", "To", "Seats", `Unit Cost (${sym})`, `Annual Cost (${sym})`].map(h => (
+                {["Year", "From (dd-mm-yyyy)", "To (dd-mm-yyyy)", "Seats", `Unit Cost (${sym})`, `Annual Cost (${sym})`].map(h => (
                   <th key={h} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, fontSize: 10, color: "var(--tx-q)", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -421,8 +437,8 @@ function PriceScheduleTable({ rows, onChange, currency = "INR" }) {
                     <td style={{ padding: "6px 10px", fontWeight: 700, color: active ? "var(--navy-mid)" : "var(--tx)" }}>
                       Year {r.year}{active && <span style={{ fontSize: 9, background: "var(--navy-mid)", color: "#fff", borderRadius: 3, padding: "1px 5px", marginLeft: 5 }}>NOW</span>}
                     </td>
-                    <td style={{ padding: "6px 10px", color: "var(--tx-m)", fontSize: 11 }}>{r.from}</td>
-                    <td style={{ padding: "6px 10px", color: "var(--tx-m)", fontSize: 11 }}>{r.to}</td>
+                    <td style={{ padding: "6px 10px", color: "var(--tx-m)", fontSize: 11 }}>{r.from.split("-").reverse().join("-")}</td>
+                    <td style={{ padding: "6px 10px", color: "var(--tx-m)", fontSize: 11 }}>{r.to.split("-").reverse().join("-")}</td>
                     <td style={{ padding: "4px 6px" }}>
                       <input type="number" className="fi2" style={{ width: 80 }}
                         value={r.seats} onChange={e => handleCell(r.year, "seats", e.target.value)}
@@ -485,9 +501,9 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
   const ambSeats = item.aiDetected && item.aiEntitled != null;
 
   return (
-    <div style={{ border: item.isExisting ? "1px solid var(--bdr)" : "1.5px solid var(--amber-m)", borderRadius: 10, marginBottom: 16, overflow: "hidden" }}>
+    <div style={{ border: item.isExisting ? "1px solid var(--bdr)" : "1.5px solid var(--amber-m)", borderRadius: 10, marginBottom: 16 }}>
       {/* Header */}
-      <div style={{ background: item.isExisting ? "var(--surf)" : "#FFFBEB", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, borderBottom: "1px solid var(--bdr)" }}>
+      <div style={{ background: item.isExisting ? "var(--surf)" : "#FFFBEB", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, borderBottom: "1px solid var(--bdr)", borderRadius: "10px 10px 0 0" }}>
         <div style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--navy-mid)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{idx + 1}</div>
         <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{item.contractName || <span style={{ color: "var(--tx-q)", fontStyle: "italic" }}>Untitled</span>}</span>
         {item.isAiDetected && item.isExisting && <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 3, background: "var(--green-l)", color: "var(--green-m)" }}>AI-detected</span>}
@@ -583,14 +599,35 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
 
         {/* Multi-Year Pricing Schedule */}
         {item.priceSchedule && item.priceSchedule.length > 0 && (
-          <PriceScheduleTable
-            rows={item.priceSchedule}
-            onChange={rows => onChange({ ...item, priceSchedule: rows })}
-            currency={currency}
-          />
+          <div style={{ marginBottom: 12 }}>
+            <PriceScheduleTable
+              rows={item.priceSchedule}
+              onChange={rows => onChange({ ...item, priceSchedule: rows })}
+              currency={currency}
+            />
+          </div>
         )}
 
-        {/* Row 4: Business Units | Regions | Deployment | GxP */}
+        {/* Row 4a: Category | Sub-Category */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <SearchableSelect
+            label={<>Category <span style={{ color: "var(--red-m)" }}>*</span></>}
+            value={item.categoryId}
+            onChange={val => onChange({ ...item, categoryId: val, subCategoryId: "" })}
+            options={categories}
+            placeholder="Select category…"
+          />
+          <SearchableSelect
+            label={<>Sub-Category <span style={{ color: "var(--red-m)" }}>*</span></>}
+            value={item.subCategoryId}
+            onChange={val => onChange({ ...item, subCategoryId: val })}
+            options={subCats}
+            placeholder={item.categoryId ? "Select sub-category…" : "Select category first"}
+            disabled={!item.categoryId}
+          />
+        </div>
+
+        {/* Row 4b: Business Units | Regions | Deployment | GxP */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <MultiSearchSelect
             label={<>Business Units <span style={{ color: "var(--red-m)" }}>*</span></>}
@@ -630,26 +667,11 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
             placeholder="Describe the purpose of this software, primary users, departments…" />
         </div>
 
-        {/* New catalog entry — only Category, Sub-Category, Vendor Risk needed (Deployment/GxP already above) */}
+        {/* New catalog entry — Vendor Risk only (Category/Sub-Category now always shown above) */}
         {!item.isExisting && item.primarySwName && (
           <div style={{ border: "1px solid var(--bdr)", borderRadius: 8, padding: 14, marginBottom: 14, background: "var(--surf)" }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>New Catalog Entry — Metadata Required</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-              <SearchableSelect
-                label={<>Category <span style={{ color: "var(--red-m)" }}>*</span></>}
-                value={item.categoryId}
-                onChange={val => onChange({ ...item, categoryId: val, subCategoryId: "" })}
-                options={categories}
-                placeholder="Select category…"
-              />
-              <SearchableSelect
-                label={<>Sub-Category <span style={{ color: "var(--red-m)" }}>*</span></>}
-                value={item.subCategoryId}
-                onChange={val => onChange({ ...item, subCategoryId: val })}
-                options={subCats}
-                placeholder={item.categoryId ? "Select sub-category…" : "Select category first"}
-                disabled={!item.categoryId}
-              />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Vendor Audit Risk</label>
                 <select className="fi2" style={{ width: "100%" }} value={item.vendorRisk} onChange={e => onChange({ ...item, vendorRisk: e.target.value })}>
@@ -1154,6 +1176,7 @@ function ManualFlow({ onBack }) {
   const [selectedDoaIds, setSelectedDoaIds] = useState([]);
   const [discoverySourceId, setDiscoverySourceId] = useState("");
   const [usageMethodId, setUsageMethodId] = useState("");
+  const [shareOwnerConfig, setShareOwnerConfig] = useState(true);
 
   // Masters
   const [categories, setCategories] = useState([]);
@@ -1177,8 +1200,8 @@ function ManualFlow({ onBack }) {
     fetchAllMasters().then(masters => {
       setCategories(masters.categories || []);
       setMetrics(masters.metrics || []);
-      setSources(masters.discovery_sources || []);
-      setMethods(masters.usage_methods || []);
+      setSources(masters.sources || []);
+      setMethods(masters.methods || []);
       setLicenseTypes(masters.license_types || []);
     }).catch(() => {});
     fetchOwners().then(list => setOwners(list || [])).catch(() => {});
@@ -1294,6 +1317,23 @@ function ManualFlow({ onBack }) {
         setPublishing(false); return;
       }
 
+      const resolvedOwnerConfig = (li, idx) =>
+        idx === 0 || !shareOwnerConfig
+          ? {
+              app_owner_id: li.appOwnerId || undefined,
+              secondary_owner_id: li.secondaryOwnerId || undefined,
+              doa_contact_ids: li.doaContactIds.length > 0 ? li.doaContactIds : undefined,
+              discovery_source_id: li.discoverySourceId || undefined,
+              usage_method_id: li.usageMethodId || undefined,
+            }
+          : {
+              app_owner_id: lineItems[0].appOwnerId || undefined,
+              secondary_owner_id: lineItems[0].secondaryOwnerId || undefined,
+              doa_contact_ids: lineItems[0].doaContactIds.length > 0 ? lineItems[0].doaContactIds : undefined,
+              discovery_source_id: lineItems[0].discoverySourceId || undefined,
+              usage_method_id: lineItems[0].usageMethodId || undefined,
+            };
+
       const payload = {
         vendor_name: meta.vendorName || undefined,
         reseller: meta.reseller || undefined,
@@ -1305,11 +1345,7 @@ function ManualFlow({ onBack }) {
         auto_renewal_clause: meta.autoRenewal || undefined,
         renewal_alert_extra_days: meta.renewalAlertDays.length > 0 ? meta.renewalAlertDays : undefined,
         currency: meta.currency || undefined,
-        app_owner_id: appOwnerId || undefined,
-        secondary_owner_id: secondaryOwnerId || undefined,
-        discovery_source_id: discoverySourceId || undefined,
-        usage_method_id: usageMethodId || undefined,
-        line_items: items.map(li => ({
+        line_items: items.map((li, idx) => ({
           contract_name: li.contractName,
           primary_sw_name: li.primarySwName,
           sw_id: li.swId || undefined,
@@ -1339,6 +1375,7 @@ function ManualFlow({ onBack }) {
               annual_cost: parseInt(r.annualCost) || ((parseInt(r.seats) * parseInt(r.unitCost)) || 0),
             }));
           })(),
+          ...resolvedOwnerConfig(li, idx),
         })),
       };
       const result = await multiPublish(payload);
@@ -1481,10 +1518,12 @@ function ManualFlow({ onBack }) {
               <label style={{ fontSize: 11, fontWeight: 600, color: !meta.autoRenewal ? "var(--amber-m)" : "var(--tx-q)", display: "block", marginBottom: 4 }}>
                 Auto-Renewal Clause {!meta.autoRenewal && "⚠"}
               </label>
-              <select className="fi2" style={{ width: "100%" }} value={meta.autoRenewal} onChange={e => setMeta(m => ({ ...m, autoRenewal: e.target.value }))}>
-                <option value="">Select…</option>
-                <option value="yes">Yes</option><option value="no">No</option><option value="opt_in">Opt-In</option>
-              </select>
+              <SearchableSelectSimple
+                value={meta.autoRenewal}
+                onChange={val => setMeta(m => ({ ...m, autoRenewal: val }))}
+                options={[{ value: "yes", label: "Yes" }, { value: "no", label: "No" }, { value: "opt_in", label: "Opt-In" }]}
+                placeholder="Select…"
+              />
             </div>
             <RenewalAlertField meta={meta} setMeta={setMeta} />
           </div>
@@ -1622,27 +1661,31 @@ function ManualFlow({ onBack }) {
           </div>
 
           {/* Step 6: Source & Usage Config */}
-          <div style={{ border: "1px solid var(--bdr)", borderRadius: 10, overflow: "hidden" }}>
-            <div style={{ background: "var(--surf)", padding: "12px 16px", borderBottom: "1px solid var(--bdr)" }}>
+          <div style={{ border: "1px solid var(--bdr)", borderRadius: 10 }}>
+            <div style={{ background: "var(--surf)", padding: "12px 16px", borderBottom: "1px solid var(--bdr)", borderRadius: "10px 10px 0 0" }}>
               <div style={{ fontWeight: 700, fontSize: 14 }}>Step 5 — Source &amp; Usage Config</div>
               <div style={{ fontSize: 11, color: "var(--tx-q)", marginTop: 2 }}>Applies to all line items from this contract</div>
             </div>
             <div style={{ padding: 16 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Discovery Source <span style={{ color: "var(--red-m)" }}>*</span></label>
-                  <select className="fi2" style={{ width: "100%" }} value={discoverySourceId} onChange={e => setDiscoverySourceId(e.target.value)}>
-                    <option value="">Select source…</option>
-                    {sources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
+                  <SearchableSelect
+                    label={<>Discovery Source <span style={{ color: "var(--red-m)" }}>*</span></>}
+                    value={discoverySourceId}
+                    onChange={setDiscoverySourceId}
+                    options={sources}
+                    placeholder="Select source…"
+                  />
                   <div style={{ fontSize: 10, color: "var(--tx-q)", marginTop: 3 }}>From Masters → Discovery Sources</div>
                 </div>
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Usage Update Method <span style={{ color: "var(--red-m)" }}>*</span></label>
-                  <select className="fi2" style={{ width: "100%" }} value={usageMethodId} onChange={e => setUsageMethodId(e.target.value)}>
-                    <option value="">Select method…</option>
-                    {methods.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
+                  <SearchableSelect
+                    label={<>Usage Update Method <span style={{ color: "var(--red-m)" }}>*</span></>}
+                    value={usageMethodId}
+                    onChange={setUsageMethodId}
+                    options={methods}
+                    placeholder="Select method…"
+                  />
                   <div style={{ fontSize: 10, color: "var(--tx-q)", marginTop: 3 }}>From Masters → Usage Update Methods</div>
                 </div>
               </div>
