@@ -198,6 +198,8 @@ async def generate_alerts(db: AsyncSession) -> int:
         sw = await db.get(SoftwareCatalog, ent.sw_id)
         is_gxp = (sw.gxp_flag != "no") if sw else False
         sw_name = sw.primary_sw_name if sw else ent.sw_id
+        doa_contacts = await get_doa_contacts_for_entitlement(db, ent.ent_id)
+        doa_contact_ids = [str(c.id) for c in doa_contacts]
 
         # ── Renewal alerts ─────────────────────────────────────────────────────
         if ent.contract_id:
@@ -221,6 +223,7 @@ async def generate_alerts(db: AsyncSession) -> int:
                                     "end_date": str(contract.end_date),
                                     "days_to_expiry": days,
                                     "is_gxp": is_gxp,
+                                    "doa_contact_ids": doa_contact_ids,
                                 },
                                 is_gxp=is_gxp,
                             ))
@@ -245,6 +248,7 @@ async def generate_alerts(db: AsyncSession) -> int:
                             "entitled": ent.entitled_count,
                             "in_use": ent.in_use_count,
                             "is_gxp": is_gxp,
+                            "doa_contact_ids": doa_contact_ids,
                         },
                         is_gxp=is_gxp,
                     ))
