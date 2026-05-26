@@ -7,16 +7,17 @@ from pydantic import BaseModel
 class LineItemIn(BaseModel):
     contract_name: str
     metric: str | None = None
-    license_type: str = "subscription"   # subscription | perpetual
+    license_type_id: UUID | None = None
     entitled_count: int | None = None
-    unit_cost_inr: int | None = None
-    annual_cost_inr: int | None = None
+    unit_cost: int | None = None
+    annual_cost: int | None = None
+    notes: str | None = None
     region_id: UUID | None = None
     discovery_source_id: UUID | None = None
     usage_method_id: UUID | None = None
     app_owner_id: UUID | None = None
     # Canonical mapping — filled in Step 4 of wizard
-    canonical_name: str | None = None
+    primary_sw_name: str | None = None
     sw_id: str | None = None             # existing SW entry to attach to
 
 
@@ -48,7 +49,7 @@ class PublishPayload(BaseModel):
     file_name: str | None = None
     file_path: str | None = None
     # Step 4 — canonical mapping
-    canonical_name: str                  # required — new or existing
+    primary_sw_name: str                  # required — new or existing
     sw_id: str | None = None             # if mapping to existing SW entry
     # New SW fields (used when sw_id is None)
     publisher: str | None = None
@@ -75,27 +76,39 @@ class PublishOut(BaseModel):
 
 # ── Multi-line-item publish (new wizard) ──────────────────────────────────────
 
+
+class PriceScheduleIn(BaseModel):
+    year_number: int
+    effective_from: date
+    effective_to: date
+    entitled_count: int
+    unit_cost: int
+    annual_cost: int
+
+
 class MultiLineItemIn(BaseModel):
     """One line item = one Contract Name → one Canonical Name → one SW_ID + ENT_ID."""
     contract_name: str                    # as written in the contract
-    canonical_name: str                   # standardised platform name
+    primary_sw_name: str                   # standardised platform name
     sw_id: str | None = None             # existing SW_ID; None = create new
-    license_type: str = "subscription"
+    license_type_id: UUID | None = None
     metric_id: UUID | None = None
     entitled_count: int | None = None
-    unit_cost_inr: int | None = None
-    annual_cost_inr: int | None = None
+    unit_cost: int | None = None
+    annual_cost: int | None = None
     # Per-item metadata (merged from old Step 4)
     deployment: str = "cloud"
-    region_id: UUID | None = None
+    regions: list[str] | None = None          # multi-select DRL regions
+    business_units: list[str] | None = None   # per-item business units
     gxp_flag: str = "no"
-    notes: str | None = None             # description / use of this specific software
+    notes: str | None = None             # description / use of this specific software; AI-enriched if blank on publish
     aliases: list[str] = []
     # Required only when sw_id is None (creating new catalog entry)
     category_id: UUID | None = None
     sub_category_id: UUID | None = None
     vendor_risk: str = "LOW"
     publisher: str | None = None
+    price_schedule: list[PriceScheduleIn] = []
 
 
 class MultiPublishPayload(BaseModel):
@@ -113,6 +126,8 @@ class MultiPublishPayload(BaseModel):
     secondary_owner_id: UUID | None = None
     discovery_source_id: UUID | None = None
     usage_method_id: UUID | None = None
+    renewal_alert_extra_days: list[int] | None = None
+    currency: str | None = None
     # Line items — each carries its own deployment/region/notes/gxp
     line_items: list[MultiLineItemIn] = []
 
@@ -121,7 +136,7 @@ class MultiPublishCreated(BaseModel):
     sw_id: str
     ent_id: str
     contract_id: UUID
-    canonical_name: str
+    primary_sw_name: str
     contract_name: str
     is_new_sw: bool
 

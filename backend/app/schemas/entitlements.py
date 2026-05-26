@@ -11,17 +11,19 @@ class EntitlementOut(BaseModel):
     sw_id: str
     contract_id: UUID | None = None
     # Resolved display fields
-    canonical_name: str | None = None      # from software_catalog
+    primary_sw_name: str | None = None      # from software_catalog
     publisher: str | None = None           # from software_catalog
     contract_name: str | None = None
     metric_id: UUID | None = None
     metric_name: str | None = None         # resolved
-    license_type: str
+    license_type_id: UUID | None = None
+    license_type: str | None = None        # resolved display name
     # Counts & cost
     entitled_count: int | None = None
     in_use_count: int | None = None
-    unit_cost_inr: int | None = None
-    annual_cost_inr: int | None = None
+    unit_cost: int | None = None
+    annual_cost: int | None = None
+    notes: str | None = None
     # Contract details (resolved from linked Contract)
     po_number: str | None = None
     clm_id: str | None = None
@@ -48,11 +50,12 @@ class EntitlementOut(BaseModel):
 class EntitlementUpdate(BaseModel):
     contract_name: str | None = None
     metric_id: UUID | None = None
-    license_type: str | None = None
+    license_type_id: UUID | None = None
     entitled_count: int | None = None
     in_use_count: int | None = None
-    unit_cost_inr: int | None = None
-    annual_cost_inr: int | None = None
+    unit_cost: int | None = None
+    annual_cost: int | None = None
+    notes: str | None = None
     region_id: UUID | None = None
     app_owner_id: UUID | None = None
     status: str | None = None
@@ -67,8 +70,8 @@ class RenewEntitlementRequest(BaseModel):
     total_value_inr: int | None = None
     auto_renewal_clause: Literal["yes", "no", "opt_in"] | None = None
     entitled_count: int | None = None
-    unit_cost_inr: int | None = None
-    annual_cost_inr: int | None = None
+    unit_cost: int | None = None
+    annual_cost: int | None = None
     notes: str | None = None
 
 
@@ -83,3 +86,15 @@ class UploadResultOut(BaseModel):
     tab_a_updated: int
     tab_b_updated: int
     errors: list[str] = []
+
+
+class PriceScheduleOut(BaseModel):
+    id: UUID
+    ent_id: str
+    year_number: int
+    effective_from: date
+    effective_to: date
+    entitled_count: int
+    unit_cost: int
+    annual_cost: int
+    model_config = {"from_attributes": True}
