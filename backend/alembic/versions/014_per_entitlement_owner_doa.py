@@ -20,9 +20,15 @@ def upgrade() -> None:
         sa.Column(
             "secondary_owner_id",
             UUID(as_uuid=True),
-            sa.ForeignKey("users.id"),
             nullable=True,
         ),
+    )
+    op.create_foreign_key(
+        "fk_entitlements_secondary_owner_id_users",
+        "entitlements",
+        "users",
+        ["secondary_owner_id"],
+        ["id"],
     )
     op.create_table(
         "entitlement_doa_contacts",
@@ -37,4 +43,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_ent_doa_contacts_ent_id", table_name="entitlement_doa_contacts")
     op.drop_table("entitlement_doa_contacts")
+    op.drop_constraint(
+        "fk_entitlements_secondary_owner_id_users",
+        "entitlements",
+        type_="foreignkey",
+    )
     op.drop_column("entitlements", "secondary_owner_id")
