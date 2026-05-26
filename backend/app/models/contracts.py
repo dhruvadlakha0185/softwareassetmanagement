@@ -26,6 +26,9 @@ class Contract(Base):
         nullable=False,
         default="local",
     )
+    renewal_alert_extra_days = Column(JSONB, nullable=True)
+    business_units = Column(JSONB, nullable=True)
+    currency = Column(String(10), nullable=True, default="INR")
     is_archived = Column(Boolean, default=False)
     archived_at = Column(DateTime, nullable=True)
     archived_path = Column(String(500), nullable=True)
@@ -41,16 +44,15 @@ class Entitlement(Base):
     contract_id = Column(UUID(as_uuid=True), ForeignKey("contracts.id"), nullable=True)
     contract_name = Column(String(255), nullable=True)
     metric_id = Column(UUID(as_uuid=True), ForeignKey("license_metrics.id"), nullable=True)
-    license_type = Column(
-        SAEnum("subscription", "perpetual", name="license_type_enum"),
-        nullable=False,
-        default="subscription",
-    )
+    license_type_id = Column(UUID(as_uuid=True), ForeignKey("license_types.id"), nullable=True)
     entitled_count = Column(BigInteger, nullable=True)
     in_use_count = Column(BigInteger, nullable=True)
-    unit_cost_inr = Column(BigInteger, nullable=True)
-    annual_cost_inr = Column(BigInteger, nullable=True)
+    unit_cost = Column(BigInteger, nullable=True)
+    annual_cost = Column(BigInteger, nullable=True)
+    notes = Column(Text, nullable=True)
     region_id = Column(UUID(as_uuid=True), ForeignKey("regions.id"), nullable=True)
+    regions_json = Column(JSONB, nullable=True)     # multi-select DRL regions per entitlement
+    business_units = Column(JSONB, nullable=True)   # per-entitlement BU list
     discovery_source_id = Column(UUID(as_uuid=True), ForeignKey("discovery_sources.id"), nullable=True)
     usage_method_id = Column(UUID(as_uuid=True), ForeignKey("usage_update_methods.id"), nullable=True)
     vendor_id = Column(UUID(as_uuid=True), ForeignKey("vendors.id"), nullable=True)
@@ -62,6 +64,20 @@ class Entitlement(Base):
     )
     renewal_of = Column(String(20), ForeignKey("entitlements.ent_id"), nullable=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EntitlementPriceSchedule(Base):
+    __tablename__ = "entitlement_price_schedules"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ent_id = Column(String(20), ForeignKey("entitlements.ent_id", ondelete="CASCADE"), nullable=False)
+    year_number = Column(Integer, nullable=False)
+    effective_from = Column(Date, nullable=False)
+    effective_to = Column(Date, nullable=False)
+    entitled_count = Column(BigInteger, nullable=False)
+    unit_cost = Column(BigInteger, nullable=False)
+    annual_cost = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class OnboardingDraft(Base):
