@@ -2,6 +2,7 @@ import io
 import pytest
 from unittest.mock import AsyncMock, patch
 from app.models.contracts import EntitlementDoaContact
+from app.schemas.onboarding import MultiLineItemIn, MultiPublishPayload
 
 MOCK_EXTRACTION = {
     "vendor_name": "Microsoft Corporation",
@@ -149,8 +150,6 @@ def test_entitlement_doa_contact_model_has_expected_columns():
     assert {"id", "ent_id", "doa_contact_id"}.issubset(cols)
 
 
-from app.schemas.onboarding import MultiLineItemIn, MultiPublishPayload
-
 def test_multi_line_item_in_has_per_item_owner_fields():
     item = MultiLineItemIn(contract_name="Test", primary_sw_name="TestSW")
     assert hasattr(item, "app_owner_id")
@@ -169,5 +168,6 @@ def test_multi_publish_payload_no_longer_has_owner_fields():
         line_items=[],
     )
     assert not hasattr(payload, "app_owner_id")
+    assert not hasattr(payload, "secondary_owner_id")
     assert not hasattr(payload, "discovery_source_id")
     assert not hasattr(payload, "usage_method_id")
