@@ -8,7 +8,7 @@ from sqlalchemy import select, func
 from app.core.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.catalog import SoftwareCatalog, SoftwareAlias
-from app.models.contracts import Contract, Entitlement, OnboardingDraft, EntitlementPriceSchedule
+from app.models.contracts import Contract, Entitlement, OnboardingDraft, EntitlementPriceSchedule, EntitlementDoaContact
 from app.schemas.onboarding import (
     DraftSave, DraftOut, PublishPayload, PublishOut,
     MultiPublishPayload, MultiPublishOut, MultiPublishCreated,
@@ -109,7 +109,13 @@ async def _next_ent_id(db: AsyncSession) -> str:
         select(func.max(Entitlement.ent_id)).where(Entitlement.ent_id.like("ENT-%"))
     )
     max_id = result.scalar_one_or_none()
-    n = int(max_id.split("-")[1]) + 1 if max_id else 1
+    if max_id:
+        try:
+            n = int(max_id.split("-")[1]) + 1
+        except (IndexError, ValueError):
+            n = 1
+    else:
+        n = 1
     return f"ENT-{n:03d}"
 
 
@@ -353,8 +359,8 @@ async def multi_publish(
                         gxp_flag=item.gxp_flag,
                         vendor_risk=item.vendor_risk,
                         deployment=item.deployment,
-                        app_owner_id=body.app_owner_id,
-                        secondary_owner_id=body.secondary_owner_id,
+                        app_owner_id=item.app_owner_id,
+                        secondary_owner_id=item.secondary_owner_id,
                         notes=item.notes,
                         onboarded_date=date.today(),
                     )
@@ -396,7 +402,13 @@ async def multi_publish(
             max_ent = (await db.execute(
                 select(func.max(Entitlement.ent_id)).where(Entitlement.ent_id.like("ENT-%"))
             )).scalar_one_or_none()
-            ent_n = int(max_ent.split("-")[1]) + 1 if max_ent else 1
+            if max_ent:
+                try:
+                    ent_n = int(max_ent.split("-")[1]) + 1
+                except (IndexError, ValueError):
+                    ent_n = 1
+            else:
+                ent_n = 1
             while True:
                 ent_candidate = f"ENT-{ent_n:03d}"
                 if not await db.get(Entitlement, ent_candidate):
@@ -419,13 +431,18 @@ async def multi_publish(
                 vendor_id=contract.vendor_id,
                 regions_json=item.regions or None,
                 business_units=item.business_units or None,
-                discovery_source_id=body.discovery_source_id,
-                usage_method_id=body.usage_method_id,
-                app_owner_id=body.app_owner_id,
+                discovery_source_id=item.discovery_source_id,
+                usage_method_id=item.usage_method_id,
+                app_owner_id=item.app_owner_id,
+                secondary_owner_id=item.secondary_owner_id,
                 status="ACTIVE",
             )
             db.add(ent)
             await db.flush()
+
+            # ── Insert per-entitlement DOA contacts ───────────────────────
+            for doa_id in item.doa_contact_ids:
+                db.add(EntitlementDoaContact(ent_id=ent_id, doa_contact_id=doa_id))
 
             # ── Insert price schedule rows (multi-year contracts) ─────────
             if item.price_schedule:

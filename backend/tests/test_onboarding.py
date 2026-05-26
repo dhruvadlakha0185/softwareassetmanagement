@@ -171,3 +171,51 @@ def test_multi_publish_payload_no_longer_has_owner_fields():
     assert not hasattr(payload, "secondary_owner_id")
     assert not hasattr(payload, "discovery_source_id")
     assert not hasattr(payload, "usage_method_id")
+
+
+import pytest
+
+@pytest.mark.asyncio
+async def test_multi_publish_writes_per_item_owner_fields(client, admin_token, db):
+    """owner fields on the line item are persisted to the entitlement."""
+    h = {"Authorization": f"Bearer {admin_token}"}
+
+    # Get master data IDs from /api/v1/masters/all
+    masters_resp = await client.get("/api/v1/masters/all")
+    assert masters_resp.status_code == 200
+    masters = masters_resp.json()
+
+    sources = masters.get("sources", [])
+    methods = masters.get("methods", [])
+
+    source_id = sources[0]["id"] if sources else None
+    method_id = methods[0]["id"] if methods else None
+
+    payload = {
+        "vendor_name": "TestCo",
+        "po_number": "PO-TEST-OWNER-001",
+        "line_items": [
+            {
+                "contract_name": "TestSW Owner License",
+                "primary_sw_name": "TestSWOwner",
+                "discovery_source_id": source_id,
+                "usage_method_id": method_id,
+                "deployment": "cloud",
+                "gxp_flag": "no",
+            }
+        ],
+    }
+    resp = await client.post("/api/v1/onboarding/multi-publish", json=payload, headers=h)
+    assert resp.status_code == 201, resp.text
+    result = resp.json()
+    assert len(result["created"]) == 1
+    ent_id = result["created"][0]["ent_id"]
+
+    from sqlalchemy import select
+    from app.models.contracts import Entitlement
+    result_ent = await db.execute(select(Entitlement).where(Entitlement.ent_id == ent_id))
+    ent = result_ent.scalar_one()
+    if source_id:
+        assert str(ent.discovery_source_id) == source_id
+    if method_id:
+        assert str(ent.usage_method_id) == method_id
