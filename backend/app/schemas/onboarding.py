@@ -109,6 +109,13 @@ class MultiLineItemIn(BaseModel):
     vendor_risk: str = "LOW"
     publisher: str | None = None
     price_schedule: list[PriceScheduleIn] = []
+    # Step 4 — Owner & DOA (per line item)
+    app_owner_id: UUID | None = None
+    secondary_owner_id: UUID | None = None
+    doa_contact_ids: list[UUID] = []
+    # Step 5 — Source & Usage Config (per line item)
+    discovery_source_id: UUID | None = None
+    usage_method_id: UUID | None = None
 
 
 class MultiPublishPayload(BaseModel):
@@ -121,14 +128,9 @@ class MultiPublishPayload(BaseModel):
     end_date: date | None = None
     total_value_inr: int | None = None
     auto_renewal_clause: str | None = None
-    # Owner & source config (shared — applies to all line items)
-    app_owner_id: UUID | None = None
-    secondary_owner_id: UUID | None = None
-    discovery_source_id: UUID | None = None
-    usage_method_id: UUID | None = None
     renewal_alert_extra_days: list[int] | None = None
     currency: str | None = None
-    # Line items — each carries its own deployment/region/notes/gxp
+    # Line items — each carries its own deployment/region/notes/gxp/owner/source
     line_items: list[MultiLineItemIn] = []
 
 

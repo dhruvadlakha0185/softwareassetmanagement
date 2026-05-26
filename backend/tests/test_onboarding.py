@@ -147,3 +147,27 @@ async def test_publish_maps_to_existing_sw(client, admin_token):
 def test_entitlement_doa_contact_model_has_expected_columns():
     cols = {c.key for c in EntitlementDoaContact.__table__.columns}
     assert {"id", "ent_id", "doa_contact_id"}.issubset(cols)
+
+
+from app.schemas.onboarding import MultiLineItemIn, MultiPublishPayload
+
+def test_multi_line_item_in_has_per_item_owner_fields():
+    item = MultiLineItemIn(contract_name="Test", primary_sw_name="TestSW")
+    assert hasattr(item, "app_owner_id")
+    assert hasattr(item, "secondary_owner_id")
+    assert hasattr(item, "doa_contact_ids")
+    assert hasattr(item, "discovery_source_id")
+    assert hasattr(item, "usage_method_id")
+    # defaults
+    assert item.doa_contact_ids == []
+    assert item.app_owner_id is None
+
+
+def test_multi_publish_payload_no_longer_has_owner_fields():
+    payload = MultiPublishPayload(
+        vendor_name="ACME",
+        line_items=[],
+    )
+    assert not hasattr(payload, "app_owner_id")
+    assert not hasattr(payload, "discovery_source_id")
+    assert not hasattr(payload, "usage_method_id")
