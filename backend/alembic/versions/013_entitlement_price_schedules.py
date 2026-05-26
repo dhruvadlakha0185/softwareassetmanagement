@@ -28,7 +28,7 @@ def upgrade():
         sa.Column("entitled_count", sa.BigInteger, nullable=False),
         sa.Column("unit_cost", sa.BigInteger, nullable=False),
         sa.Column("annual_cost", sa.BigInteger, nullable=False),
-        sa.Column("created_at", sa.DateTime, server_default=sa.text("now()")),
+        sa.Column("created_at", sa.DateTime, nullable=False, server_default=sa.text("now()")),
         sa.UniqueConstraint("ent_id", "year_number", name="uq_ent_year"),
     )
     op.create_index(
