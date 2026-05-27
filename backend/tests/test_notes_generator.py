@@ -50,7 +50,7 @@ async def test_returns_generated_string_on_success():
     mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
     with patch("app.services.ai.notes_generator.settings") as mock_settings, \
-         patch("app.services.ai.notes_generator.AsyncOpenAI", return_value=mock_client):
+         patch("openai.AsyncOpenAI", return_value=mock_client):
         mock_settings.openai_api_key = "sk-test-key"
         result = await generate_entitlement_notes(SAMPLE_CONTEXT)
 
@@ -66,23 +66,21 @@ async def test_returns_none_on_openai_exception():
     mock_client.chat.completions.create = AsyncMock(side_effect=Exception("API error"))
 
     with patch("app.services.ai.notes_generator.settings") as mock_settings, \
-         patch("app.services.ai.notes_generator.AsyncOpenAI", return_value=mock_client):
+         patch("openai.AsyncOpenAI", return_value=mock_client):
         mock_settings.openai_api_key = "sk-test-key"
         result = await generate_entitlement_notes(SAMPLE_CONTEXT)
 
     assert result is None
 
 
-@pytest.mark.asyncio
-async def test_build_user_message_formats_cost():
+def test_build_user_message_formats_cost():
     """_build_user_message formats annual_cost with commas."""
     from app.services.ai.notes_generator import _build_user_message
     msg = _build_user_message(SAMPLE_CONTEXT)
     assert "12,000,000 INR" in msg
 
 
-@pytest.mark.asyncio
-async def test_build_user_message_handles_missing_fields():
+def test_build_user_message_handles_missing_fields():
     """_build_user_message handles None/missing fields gracefully."""
     from app.services.ai.notes_generator import _build_user_message
     msg = _build_user_message({
@@ -91,3 +89,18 @@ async def test_build_user_message_handles_missing_fields():
     })
     assert "SAP S/4HANA" in msg
     assert "not specified" in msg
+
+
+def test_build_user_message_with_zero_annual_cost():
+    """annual_cost=0 must appear as '0 INR', not 'not specified'."""
+    from app.services.ai.notes_generator import _build_user_message
+    msg = _build_user_message({"primary_sw_name": "TestSW", "contract_name": "TestSW License", "annual_cost": 0, "currency": "INR"})
+    assert "0 INR" in msg
+    assert "not specified" not in msg.split("Annual cost:")[1].split("\n")[0]
+
+
+def test_build_user_message_with_zero_entitled_count():
+    """entitled_count=0 must appear as '0', not 'not specified'."""
+    from app.services.ai.notes_generator import _build_user_message
+    msg = _build_user_message({"primary_sw_name": "TestSW", "contract_name": "TestSW License", "entitled_count": 0})
+    assert "Entitled: 0" in msg

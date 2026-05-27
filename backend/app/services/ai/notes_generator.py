@@ -4,7 +4,6 @@ Takes a context dict for one software entitlement, returns a 3-5 sentence
 procurement rationale string, or None on failure.
 Never raises — failures are swallowed so publish is never blocked.
 """
-from openai import AsyncOpenAI
 from app.core.config import settings
 
 SYSTEM_PROMPT = (
@@ -23,8 +22,9 @@ SYSTEM_PROMPT = (
 def _build_user_message(ctx: dict) -> str:
     annual_cost = ctx.get("annual_cost")
     currency = ctx.get("currency", "INR")
-    cost_str = f"{annual_cost:,} {currency}" if annual_cost else "not specified"
+    cost_str = f"{annual_cost:,} {currency}" if annual_cost is not None else "not specified"
 
+    entitled = ctx.get("entitled_count")
     bus = ", ".join(ctx.get("business_units") or []) or "not specified"
     regions = ", ".join(ctx.get("regions") or []) or "not specified"
 
@@ -36,7 +36,7 @@ def _build_user_message(ctx: dict) -> str:
         f"License type: {ctx.get('license_type_name') or 'not specified'}\n"
         f"Deployment: {ctx.get('deployment') or 'not specified'}\n"
         f"GxP regulated: {ctx.get('gxp_flag') or 'no'}\n"
-        f"Entitled: {ctx.get('entitled_count') or 'not specified'} {ctx.get('metric_name') or 'licenses'}\n"
+        f"Entitled: {entitled if entitled is not None else 'not specified'} {ctx.get('metric_name') or 'licenses'}\n"
         f"Business units: {bus}\n"
         f"Regions: {regions}\n"
         f"Vendor: {ctx.get('vendor_name') or 'not specified'}\n"
@@ -51,6 +51,7 @@ async def generate_entitlement_notes(context: dict) -> str | None:
     if settings.openai_api_key == "dummy":
         return None
     try:
+        from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         response = await client.chat.completions.create(
             model="gpt-4o",
