@@ -181,10 +181,9 @@ function MethodSelection({ onSelect }) {
 }
 
 // ── Bulk Upload Flow ──────────────────────────────────────────────────────────
-function BulkUploadFlow({ onBack }) {
+function BulkUploadFlow({ onBack, onExtracted }) {
   const [file, setFile] = useState(null);
   const [processing, setProcessing] = useState(false);
-  const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const fileRef = useRef(null);
 
@@ -199,7 +198,10 @@ function BulkUploadFlow({ onBack }) {
   const handleProcess = async () => {
     if (!file) return;
     setProcessing(true); setError(null);
-    try { setResult(await bulkOnboard(file)); }
+    try {
+      const data = await bulkOnboard(file);
+      onExtracted(data);
+    }
     catch (e) { setError(e?.response?.data?.detail || "Processing failed."); }
     finally { setProcessing(false); }
   };
@@ -214,12 +216,12 @@ function BulkUploadFlow({ onBack }) {
         <div style={{ width: 36, height: 36, borderRadius: 6, background: "#DBEAFE", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📄</div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#1E40AF", marginBottom: 2 }}>DRL_BulkOnboarding_Template.xlsx</div>
-          <div style={{ fontSize: 11, color: "#3B82F6" }}>Software Name · SW_ID · Publisher · Category · Deployment · GxP · Contract Name · PO · Dates · License Type · Metric · Seats · Costs</div>
+          <div style={{ fontSize: 11, color: "#3B82F6" }}>Tab 1: Vendor · PO Number · Contract Name · Dates · Currency · Auto-Renewal · CLM ID</div>
+          <div style={{ fontSize: 11, color: "#3B82F6", marginTop: 2 }}>Tab 2: Software · License Type · Metric · Counts · Costs · Regions · Business Units · GxP · Owner</div>
         </div>
         <button style={{ background: "var(--navy-mid)", color: "#fff", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" }} onClick={handleDownload}>↓ Download Template</button>
       </div>
-      {!result && (
-        <div style={{ border: "1px solid var(--bdr)", borderRadius: 10, padding: 24, maxWidth: 600 }}>
+      <div style={{ border: "1px solid var(--bdr)", borderRadius: 10, padding: 24, maxWidth: 600 }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14 }}>Step 2 — Upload Filled Template</div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
             <input ref={fileRef} type="file" accept=".xlsx" style={{ display: "none" }} onChange={e => setFile(e.target.files?.[0] || null)} />
@@ -230,26 +232,10 @@ function BulkUploadFlow({ onBack }) {
           </div>
           {error && <div style={{ background: "#fff0f0", border: "1px solid var(--red-m)", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "var(--red-m)", marginBottom: 12 }}>{error}</div>}
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-p btn-sm" style={{ background: "var(--navy-mid)" }} disabled={!file || processing} onClick={handleProcess}>{processing ? "Processing…" : "Process & Create Records"}</button>
+            <button className="btn btn-p btn-sm" style={{ background: "var(--navy-mid)" }} disabled={!file || processing} onClick={handleProcess}>{processing ? "Extracting…" : "Extract & Review"}</button>
             <button className="btn btn-o btn-sm" onClick={onBack}>← Back</button>
           </div>
         </div>
-      )}
-      {result && (
-        <div style={{ border: "1px solid var(--bdr)", borderRadius: 10, padding: 24, maxWidth: 600 }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12, color: "var(--green-m)" }}>Bulk onboarding complete</div>
-          <div style={{ fontSize: 13, lineHeight: 2, marginBottom: 14 }}>
-            <div><strong>{result.sw_created}</strong> SW entries created: {result.sw_ids?.join(", ")}</div>
-            <div><strong>{result.ent_created}</strong> entitlements: {result.ent_ids?.join(", ")}</div>
-          </div>
-          {result.skipped?.length > 0 && <div style={{ background: "var(--amber-l)", border: "1px solid var(--amber-m)", borderRadius: 6, padding: "10px 12px", fontSize: 12, color: "var(--amber-m)", marginBottom: 14 }}><strong>{result.skipped.length} skipped:</strong><ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>{result.skipped.map((s,i) => <li key={i}>{s}</li>)}</ul></div>}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-p btn-sm" style={{ background: "var(--navy-mid)" }} onClick={() => { setResult(null); setFile(null); }}>Upload Another</button>
-            <button className="btn btn-o btn-sm" onClick={onBack}>← Back</button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1318,10 +1304,10 @@ const GXP_OPTIONS = [
 ];
 
 // ── Manual Flow ───────────────────────────────────────────────────────────────
-function ManualFlow({ onBack }) {
+function ManualFlow({ onBack, initialExtracted = null }) {
   const [file, setFile] = useState(null);
   const [extracting, setExtracting] = useState(false);
-  const [extracted, setExtracted] = useState(null);
+  const [extracted, setExtracted] = useState(initialExtracted);
   const [extractError, setExtractError] = useState("");
   const [uploadedFileName, setUploadedFileName] = useState(null);
   const [fileSize, setFileSize] = useState(null);
@@ -1994,7 +1980,24 @@ function ManualFlow({ onBack }) {
 // ── Page Entry ────────────────────────────────────────────────────────────────
 export default function OnboardingPage() {
   const [mode, setMode] = useState(null);
-  if (mode === "manual") return <ManualFlow onBack={() => setMode(null)} />;
-  if (mode === "bulk")   return <BulkUploadFlow onBack={() => setMode(null)} />;
+  const [bulkExtracted, setBulkExtracted] = useState(null);
+
+  const handleBulkExtracted = (data) => {
+    setBulkExtracted(data);
+    setMode("manual");
+  };
+
+  if (mode === "manual") return (
+    <ManualFlow
+      onBack={() => { setMode(null); setBulkExtracted(null); }}
+      initialExtracted={bulkExtracted}
+    />
+  );
+  if (mode === "bulk") return (
+    <BulkUploadFlow
+      onBack={() => setMode(null)}
+      onExtracted={handleBulkExtracted}
+    />
+  );
   return <MethodSelection onSelect={setMode} />;
 }
