@@ -915,7 +915,7 @@ def _parse_bulk_two_tab(data: bytes) -> tuple[dict, list[dict]]:
 
 @router.get("/bulk-template")
 async def download_bulk_template(db: AsyncSession = Depends(get_db)):
-    from app.models.masters import LicenseType, LicenseMetric, Region, Category, SubCategory, DiscoverySource, UsageMethod
+    from app.models.masters import LicenseType, LicenseMetric, Region, Category, SubCategory, DiscoverySource, UsageUpdateMethod
 
     def _names(rows):
         return [r.name for r in rows]
@@ -926,7 +926,7 @@ async def download_bulk_template(db: AsyncSession = Depends(get_db)):
     categories    = _names((await db.execute(select(Category))).scalars().all())
     sub_categories = _names((await db.execute(select(SubCategory))).scalars().all())
     discovery_sources = _names((await db.execute(select(DiscoverySource))).scalars().all())
-    usage_methods = _names((await db.execute(select(UsageMethod))).scalars().all())
+    usage_methods = _names((await db.execute(select(UsageUpdateMethod))).scalars().all())
 
     db_lists = {
         "license_types": license_types,
