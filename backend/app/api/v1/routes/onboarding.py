@@ -14,6 +14,7 @@ from app.schemas.onboarding import (
     MultiPublishPayload, MultiPublishOut, MultiPublishCreated,
 )
 from app.services.ai.contract_extractor import extract_contract_text, call_openai
+from app.services.ai.notes_generator import generate_entitlement_notes
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 auth = Depends(get_current_user)
@@ -321,10 +322,34 @@ async def multi_publish(
     Each line item gets its own Contract record (sharing PO/CLM/dates),
     its own SW_ID (new or existing), and its own ENT_ID.
     """
-    from app.models.masters import LicenseMetric
-
     if not body.line_items:
         raise HTTPException(status_code=400, detail="No line items provided")
+
+    # ── Batch-resolve lookup names for AI notes context ───────────────────
+    from app.models.masters import Category, SubCategory, LicenseMetric, LicenseType
+
+    _cat_ids = {i.category_id for i in body.line_items if i.category_id}
+    _sub_ids = {i.sub_category_id for i in body.line_items if i.sub_category_id}
+    _metric_ids = {i.metric_id for i in body.line_items if i.metric_id}
+    _lt_ids = {i.license_type_id for i in body.line_items if i.license_type_id}
+
+    cat_names: dict = {}
+    sub_names: dict = {}
+    metric_names: dict = {}
+    lt_names: dict = {}
+
+    if _cat_ids:
+        rows = (await db.execute(select(Category).where(Category.id.in_(_cat_ids)))).scalars().all()
+        cat_names = {r.id: r.name for r in rows}
+    if _sub_ids:
+        rows = (await db.execute(select(SubCategory).where(SubCategory.id.in_(_sub_ids)))).scalars().all()
+        sub_names = {r.id: r.name for r in rows}
+    if _metric_ids:
+        rows = (await db.execute(select(LicenseMetric).where(LicenseMetric.id.in_(_metric_ids)))).scalars().all()
+        metric_names = {r.id: r.name for r in rows}
+    if _lt_ids:
+        rows = (await db.execute(select(LicenseType).where(LicenseType.id.in_(_lt_ids)))).scalars().all()
+        lt_names = {r.id: r.license_type for r in rows}
 
     created: list[MultiPublishCreated] = []
     skipped: list[str] = []
@@ -333,6 +358,32 @@ async def multi_publish(
         try:
             # ── Resolve SW entry ──────────────────────────────────────────
             is_new_sw = False
+
+            # ── Generate notes if blank ───────────────────────────────────
+            notes = item.notes or None
+            if not notes:
+                _ctx = {
+                    "primary_sw_name": item.primary_sw_name,
+                    "publisher": item.publisher or body.vendor_name,
+                    "contract_name": item.contract_name,
+                    "category_name": cat_names.get(item.category_id) if item.category_id else None,
+                    "sub_category_name": sub_names.get(item.sub_category_id) if item.sub_category_id else None,
+                    "license_type_name": lt_names.get(item.license_type_id) if item.license_type_id else None,
+                    "deployment": item.deployment,
+                    "gxp_flag": item.gxp_flag,
+                    "entitled_count": item.entitled_count,
+                    "metric_name": metric_names.get(item.metric_id) if item.metric_id else None,
+                    "business_units": item.business_units,
+                    "regions": item.regions,
+                    "vendor_name": body.vendor_name,
+                    "start_date": str(body.start_date) if body.start_date else None,
+                    "end_date": str(body.end_date) if body.end_date else None,
+                    "annual_cost": item.annual_cost,
+                    "currency": body.currency or "INR",
+                    "auto_renewal_clause": body.auto_renewal_clause,
+                }
+                notes = await generate_entitlement_notes(_ctx)
+
             if item.sw_id:
                 sw = await db.get(SoftwareCatalog, item.sw_id)
                 if not sw:
@@ -361,7 +412,7 @@ async def multi_publish(
                         deployment=item.deployment,
                         app_owner_id=item.app_owner_id,
                         secondary_owner_id=item.secondary_owner_id,
-                        notes=item.notes,
+                        notes=notes,
                         onboarded_date=date.today(),
                     )
                     db.add(sw_entry)
@@ -427,7 +478,7 @@ async def multi_publish(
                 in_use_count=0,
                 unit_cost=item.unit_cost,
                 annual_cost=item.annual_cost,
-                notes=item.notes,
+                notes=notes,
                 vendor_id=contract.vendor_id,
                 regions_json=item.regions or None,
                 business_units=item.business_units or None,

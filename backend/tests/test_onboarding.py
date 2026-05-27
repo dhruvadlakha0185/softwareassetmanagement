@@ -269,3 +269,71 @@ async def test_multi_publish_creates_doa_contact_rows(client, admin_token, db):
     rows = result.scalars().all()
     assert len(rows) == 1
     assert str(rows[0].doa_contact_id) == doa_id
+
+
+@pytest.mark.asyncio
+async def test_multi_publish_generates_notes_when_blank(client, admin_token, db):
+    """When notes is None on the line item, the generator is called and the result is persisted."""
+    from sqlalchemy import select
+    from app.models.contracts import Entitlement
+    from unittest.mock import AsyncMock, patch
+
+    h = {"Authorization": f"Bearer {admin_token}"}
+    payload = {
+        "vendor_name": "TestVendor",
+        "po_number": "PO-NOTES-GEN-001",
+        "line_items": [
+            {
+                "contract_name": "TestSW Notes License",
+                "primary_sw_name": "TestSWNotes",
+                "deployment": "cloud",
+                "gxp_flag": "no",
+            }
+        ],
+    }
+
+    with patch(
+        "app.api.v1.routes.onboarding.generate_entitlement_notes",
+        new_callable=AsyncMock,
+        return_value="Generated procurement note for testing.",
+    ) as mock_gen:
+        resp = await client.post("/api/v1/onboarding/multi-publish", json=payload, headers=h)
+
+    assert resp.status_code == 201, resp.text
+    ent_id = resp.json()["created"][0]["ent_id"]
+    mock_gen.assert_called_once()
+
+    result = await db.execute(select(Entitlement).where(Entitlement.ent_id == ent_id))
+    ent = result.scalar_one()
+    assert ent.notes == "Generated procurement note for testing."
+
+
+@pytest.mark.asyncio
+async def test_multi_publish_skips_generator_when_notes_present(client, admin_token):
+    """When the line item already has notes, the generator is NOT called."""
+    from unittest.mock import AsyncMock, patch
+
+    h = {"Authorization": f"Bearer {admin_token}"}
+    payload = {
+        "vendor_name": "TestVendor",
+        "po_number": "PO-NOTES-SKIP-001",
+        "line_items": [
+            {
+                "contract_name": "TestSW Existing Notes",
+                "primary_sw_name": "TestSWExistingNotes",
+                "notes": "Existing handwritten note.",
+                "deployment": "cloud",
+                "gxp_flag": "no",
+            }
+        ],
+    }
+
+    with patch(
+        "app.api.v1.routes.onboarding.generate_entitlement_notes",
+        new_callable=AsyncMock,
+        return_value="Should not appear.",
+    ) as mock_gen:
+        resp = await client.post("/api/v1/onboarding/multi-publish", json=payload, headers=h)
+
+    assert resp.status_code == 201, resp.text
+    mock_gen.assert_not_called()
