@@ -674,7 +674,7 @@ def _parse_bulk_two_tab(data: bytes) -> tuple[dict, list[dict]]:
     # ── Tab 1: contract meta from row 3 ──────────────────────────────────────
     ws1 = wb["Contract Information"]
     rows1 = list(ws1.iter_rows(min_row=3, max_row=3, values_only=True))
-    if not rows1 or not rows1[0]:
+    if not rows1 or not rows1[0] or all(v is None for v in rows1[0]):
         raise ValueError("Contract Information tab has no data in row 3")
     r = rows1[0]
 
@@ -692,6 +692,17 @@ def _parse_bulk_two_tab(data: bytes) -> tuple[dict, list[dict]]:
             return s
         except ValueError:
             return None
+
+    def _int(v) -> int | None:
+        try:
+            return int(v) if v is not None and str(v).strip() != "" else None
+        except (ValueError, TypeError):
+            return None
+
+    def _split(v) -> list[str]:
+        if not v or str(v).strip() == "":
+            return []
+        return [x.strip() for x in str(v).split(",") if x.strip()]
 
     auto_renewal_raw = _str(r[6])
     auto_renewal = auto_renewal_raw if auto_renewal_raw in ("yes", "no", "opt_in") else None
@@ -718,17 +729,6 @@ def _parse_bulk_two_tab(data: bytes) -> tuple[dict, list[dict]]:
         primary_sw_name = _str(row[0])
         if not primary_sw_name:
             continue  # skip rows without software name
-
-        def _int(v) -> int | None:
-            try:
-                return int(v) if v is not None and str(v).strip() != "" else None
-            except (ValueError, TypeError):
-                return None
-
-        def _split(v) -> list[str]:
-            if not v or str(v).strip() == "":
-                return []
-            return [x.strip() for x in str(v).split(",") if x.strip()]
 
         gxp_raw = _str(row[11]) or "no"
         gxp_flag = gxp_raw if gxp_raw in ("no", "yes_21cfr", "yes_annex11", "yes_both") else "no"
