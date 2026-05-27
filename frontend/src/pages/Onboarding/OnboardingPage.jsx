@@ -463,8 +463,103 @@ function PriceScheduleTable({ rows, onChange, currency = "INR" }) {
   );
 }
 
+function OwnerSourceSection({ item, onChange, owners, sources, methods, doaContacts, readOnly, fromItem }) {
+  const src = readOnly ? fromItem : item;
+  const ownerSelected = owners.find(o => o.id === src.appOwnerId);
+  const secondarySelected = owners.find(o => o.id === src.secondaryOwnerId);
+  const sourceSelected = sources.find(o => o.id === src.discoverySourceId);
+  const methodSelected = methods.find(o => o.id === src.usageMethodId);
+  const selectedDoa = (doaContacts || []).filter(d => (src.doaContactIds || []).includes(d.id));
+
+  if (readOnly) {
+    return (
+      <div>
+        <div style={{ background: "var(--surf)", border: "1px solid var(--bdr)", borderRadius: 6, padding: "10px 14px", marginBottom: 8, fontSize: 12, color: "var(--tx-q)", fontStyle: "italic" }}>
+          Inherited from Line Item 1 — uncheck "Apply to all" on Line Item 1 to configure independently.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Primary App Owner</label>
+            <div className="fi2" style={{ color: ownerSelected ? "var(--tx-m)" : "var(--tx-q)" }}>{ownerSelected ? ownerSelected.name : "—"}</div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Secondary Owner</label>
+            <div className="fi2" style={{ color: secondarySelected ? "var(--tx-m)" : "var(--tx-q)" }}>{secondarySelected ? secondarySelected.name : "—"}</div>
+          </div>
+        </div>
+        {selectedDoa.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>DOA Escalation Contacts</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {selectedDoa.map(d => (
+                <span key={d.id} style={{ fontSize: 11, fontWeight: 600, background: "var(--navy-mid)", color: "#fff", borderRadius: 4, padding: "3px 10px" }}>
+                  {d.full_name}{d.role_label ? ` — ${d.role_label}` : ""}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Discovery Source</label>
+            <div className="fi2" style={{ color: sourceSelected ? "var(--tx-m)" : "var(--tx-q)" }}>{sourceSelected ? sourceSelected.name : "—"}</div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Usage Update Method</label>
+            <div className="fi2" style={{ color: methodSelected ? "var(--tx-m)" : "var(--tx-q)" }}>{methodSelected ? methodSelected.name : "—"}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <SearchableSelect
+          label={<>Primary App Owner <span style={{ color: "var(--red-m)" }}>*</span></>}
+          value={item.appOwnerId}
+          onChange={val => onChange({ ...item, appOwnerId: val })}
+          options={owners}
+          placeholder="Select owner…"
+        />
+        <SearchableSelect
+          label="Secondary Owner"
+          value={item.secondaryOwnerId}
+          onChange={val => onChange({ ...item, secondaryOwnerId: val })}
+          options={owners.filter(o => o.id !== item.appOwnerId)}
+          placeholder="Select secondary owner…"
+        />
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <DOAPickerField
+          contacts={doaContacts}
+          selectedIds={item.doaContactIds}
+          onChange={ids => onChange({ ...item, doaContactIds: ids })}
+        />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <SearchableSelect
+          label={<>Discovery Source <span style={{ color: "var(--red-m)" }}>*</span></>}
+          value={item.discoverySourceId}
+          onChange={val => onChange({ ...item, discoverySourceId: val })}
+          options={sources}
+          placeholder="Select source…"
+        />
+        <SearchableSelect
+          label={<>Usage Update Method <span style={{ color: "var(--red-m)" }}>*</span></>}
+          value={item.usageMethodId}
+          onChange={val => onChange({ ...item, usageMethodId: val })}
+          options={methods}
+          placeholder="Select method…"
+        />
+      </div>
+    </div>
+  );
+}
+
 // ── Line Item Card ────────────────────────────────────────────────────────────
-function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories, metrics, licenseTypes, currency = "INR" }) {
+function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories, metrics, licenseTypes, currency = "INR", shareOwnerConfig, setShareOwnerConfig, setLineItems, lineItems, owners, doaContacts, sources, methods }) {
   const subCats = categories.find(c => c.id === item.categoryId)?.sub_categories || [];
   // Only show error styling once the user has started filling the item
   const touched = Boolean(item.contractName || item.primarySwName);
@@ -703,6 +798,66 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
             </button>
           </div>
           <div style={{ fontSize: 10, color: "var(--tx-q)" }}>Aliases are alternative names reported by discovery sources — all map to the same SW_ID</div>
+        </div>
+        {/* Step 4 & 5: Owner, DOA, Source — per line item */}
+        <div style={{ borderTop: "1px solid var(--bdr)", paddingTop: 16, marginTop: 4 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: "var(--tx-m)", marginBottom: 12 }}>
+            Step 4 — Owner &amp; DOA Escalation &nbsp;·&nbsp; Step 5 — Source &amp; Usage Config
+          </div>
+          {idx === 0 ? (
+            <>
+              <OwnerSourceSection
+                item={item}
+                onChange={onChange}
+                owners={owners || []}
+                sources={sources || []}
+                methods={methods || []}
+                doaContacts={doaContacts || []}
+                readOnly={false}
+              />
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--bdr)" }}>
+                <input
+                  type="checkbox"
+                  id={`share-owner-${item.id}`}
+                  checked={shareOwnerConfig}
+                  onChange={e => {
+                    const checked = e.target.checked;
+                    setShareOwnerConfig(checked);
+                    if (!checked) {
+                      setLineItems(ls => ls.map((li, i) =>
+                        i === 0 ? li : { ...li, appOwnerId: "", secondaryOwnerId: "", doaContactIds: [], discoverySourceId: "", usageMethodId: "" }
+                      ));
+                    }
+                  }}
+                  style={{ width: 15, height: 15, cursor: "pointer", accentColor: "var(--navy)" }}
+                />
+                <label htmlFor={`share-owner-${item.id}`} style={{ fontSize: 13, color: "var(--tx-s)", cursor: "pointer", userSelect: "none" }}>
+                  Apply this owner &amp; source config to all line items
+                </label>
+              </div>
+            </>
+          ) : shareOwnerConfig ? (
+            <OwnerSourceSection
+              item={item}
+              onChange={onChange}
+              owners={owners || []}
+              sources={sources || []}
+              methods={methods || []}
+              doaContacts={doaContacts || []}
+              readOnly={true}
+              fromItem={lineItems ? lineItems[0] : item}
+            />
+          ) : (
+            <OwnerSourceSection
+              item={item}
+              onChange={onChange}
+              owners={owners || []}
+              sources={sources || []}
+              methods={methods || []}
+              doaContacts={doaContacts || []}
+              readOnly={false}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -1608,6 +1763,14 @@ function ManualFlow({ onBack }) {
               metrics={metrics}
               licenseTypes={licenseTypes}
               currency={meta.currency || "INR"}
+              shareOwnerConfig={shareOwnerConfig}
+              setShareOwnerConfig={setShareOwnerConfig}
+              setLineItems={setLineItems}
+              lineItems={lineItems}
+              owners={owners.filter(o => o.is_active).map(o => ({ id: o.id, name: o.full_name }))}
+              doaContacts={doaContacts}
+              sources={sources}
+              methods={methods}
             />
           ))}
         </div>
