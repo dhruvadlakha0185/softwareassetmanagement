@@ -1327,11 +1327,11 @@ function ManualFlow({ onBack }) {
               usage_method_id: li.usageMethodId || undefined,
             }
           : {
-              app_owner_id: lineItems[0].appOwnerId || undefined,
-              secondary_owner_id: lineItems[0].secondaryOwnerId || undefined,
-              doa_contact_ids: lineItems[0].doaContactIds.length > 0 ? lineItems[0].doaContactIds : undefined,
-              discovery_source_id: lineItems[0].discoverySourceId || undefined,
-              usage_method_id: lineItems[0].usageMethodId || undefined,
+              app_owner_id: items[0].appOwnerId || undefined,
+              secondary_owner_id: items[0].secondaryOwnerId || undefined,
+              doa_contact_ids: items[0].doaContactIds.length > 0 ? items[0].doaContactIds : undefined,
+              discovery_source_id: items[0].discoverySourceId || undefined,
+              usage_method_id: items[0].usageMethodId || undefined,
             };
 
       const payload = {
