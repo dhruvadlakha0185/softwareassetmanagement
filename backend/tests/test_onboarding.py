@@ -554,3 +554,61 @@ def test_generate_template_line_items_has_20_columns():
     headers = [ws.cell(row=2, column=c).value for c in range(1, 21)]
     assert headers[0] == "Software Name *"
     assert headers[19] == "Usage Update Method"
+
+
+async def test_bulk_upload_returns_extracted_data(client, admin_token):
+    h = {"Authorization": f"Bearer {admin_token}"}
+    xlsx_data = _make_two_tab_xlsx(
+        meta_row=["Acme Corp", "PO-TEST-001", "Acme Contract FY26",
+                  "2026-04-01", "2027-03-31", "CLM-TEST", "no", "USD"],
+        item_rows=[
+            ["Acme ERP", "", "subscription", "Per User", 100, 5000, None,
+             "IT", "Global", "ERP & Supply Chain", "ERP", "no", "LOW", "cloud",
+             "Test notes", "", "", "", "", ""],
+        ],
+    )
+    resp = await client.post(
+        "/api/v1/onboarding/bulk",
+        files={"file": ("template.xlsx", io.BytesIO(xlsx_data),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        headers=h,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["vendor_name"] == "Acme Corp"
+    assert data["po_number"] == "PO-TEST-001"
+    assert data["contract_name"] == "Acme Contract FY26"
+    assert data["currency"] == "USD"
+    assert len(data["line_items"]) == 1
+    item = data["line_items"][0]
+    assert item["primary_sw_name"] == "Acme ERP"
+    assert item["license_type"] == "subscription"
+    assert item["entitled_count"] == 100
+    assert item["contract_name"] == "Acme Contract FY26"
+
+
+async def test_bulk_upload_old_format_returns_400(client, admin_token):
+    h = {"Authorization": f"Bearer {admin_token}"}
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Bulk Onboarding"
+    ws.append(["Software Name *", "Contract Name *"])
+    ws.append(["SAP ERP", "SAP FY26"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    resp = await client.post(
+        "/api/v1/onboarding/bulk",
+        files={"file": ("old_template.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        headers=h,
+    )
+    assert resp.status_code == 400
+    assert "Contract Information" in resp.json()["detail"]
+
+
+async def test_bulk_upload_requires_auth(client):
+    resp = await client.post(
+        "/api/v1/onboarding/bulk",
+        files={"file": ("t.xlsx", io.BytesIO(b"fake"), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code in (401, 403)
