@@ -474,8 +474,12 @@ function OwnerSourceSection({ item, onChange, owners, sources, methods, doaConta
   if (readOnly) {
     return (
       <div>
-        <div style={{ background: "var(--surf)", border: "1px solid var(--bdr)", borderRadius: 6, padding: "10px 14px", marginBottom: 8, fontSize: 12, color: "var(--tx-q)", fontStyle: "italic" }}>
+        <div style={{ background: "var(--surf)", border: "1px solid var(--bdr)", borderRadius: 6, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "var(--tx-q)", fontStyle: "italic" }}>
           Inherited from Line Item 1 — uncheck "Apply to all" on Line Item 1 to configure independently.
+        </div>
+        {/* Step 4 — Owner & DOA */}
+        <div style={{ fontWeight: 700, fontSize: 12, color: "var(--tx-m)", marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Step 4 — Owner &amp; DOA Escalation
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
@@ -499,6 +503,10 @@ function OwnerSourceSection({ item, onChange, owners, sources, methods, doaConta
             </div>
           </div>
         )}
+        {/* Step 5 — Source & Usage Config */}
+        <div style={{ fontWeight: 700, fontSize: 12, color: "var(--tx-m)", marginBottom: 10, marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--bdr)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Step 5 — Source &amp; Usage Config
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
             <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Discovery Source</label>
@@ -515,6 +523,10 @@ function OwnerSourceSection({ item, onChange, owners, sources, methods, doaConta
 
   return (
     <div>
+      {/* Step 4 — Owner & DOA */}
+      <div style={{ fontWeight: 700, fontSize: 12, color: "var(--tx-m)", marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+        Step 4 — Owner &amp; DOA Escalation
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
         <SearchableSelect
           label={<>Primary App Owner <span style={{ color: "var(--red-m)" }}>*</span></>}
@@ -537,6 +549,10 @@ function OwnerSourceSection({ item, onChange, owners, sources, methods, doaConta
           selectedIds={item.doaContactIds}
           onChange={ids => onChange({ ...item, doaContactIds: ids })}
         />
+      </div>
+      {/* Step 5 — Source & Usage Config */}
+      <div style={{ fontWeight: 700, fontSize: 12, color: "var(--tx-m)", marginBottom: 10, marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--bdr)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+        Step 5 — Source &amp; Usage Config
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <SearchableSelect
@@ -801,9 +817,6 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
         </div>
         {/* Step 4 & 5: Owner, DOA, Source — per line item */}
         <div style={{ borderTop: "1px solid var(--bdr)", paddingTop: 16, marginTop: 4 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: "var(--tx-m)", marginBottom: 12 }}>
-            Step 4 — Owner &amp; DOA Escalation &nbsp;·&nbsp; Step 5 — Source &amp; Usage Config
-          </div>
           {idx === 0 ? (
             <>
               <OwnerSourceSection
@@ -1691,8 +1704,8 @@ function ManualFlow({ onBack }) {
       </div>
 
       {/* ── Step 3: Line Items ─────────────────────────────────────────────── */}
-      <div style={{ border: "1px solid var(--bdr)", borderRadius: 10, marginBottom: 20, overflow: "hidden" }}>
-        <div style={{ background: "var(--surf)", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--bdr)" }}>
+      <div style={{ border: "1px solid var(--bdr)", borderRadius: 10, marginBottom: 20 }}>
+        <div style={{ background: "var(--surf)", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--bdr)", borderRadius: "10px 10px 0 0" }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: 15 }}>Step 3 — Contract Line Items</div>
             <div style={{ fontSize: 11, color: "var(--tx-q)", marginTop: 2 }}>Each line item = one Contract Software Name → one Primary Software Name → one SW_ID + one ENT_ID</div>
@@ -1781,6 +1794,14 @@ function ManualFlow({ onBack }) {
         <button className="btn btn-o btn-sm" style={{ marginLeft: "auto" }} onClick={addItem}>+ Add Line Item</button>
       </div>
 
+      {/* ── Publishing banner ──────────────────────────────────────────────── */}
+      {publishing && (
+        <div style={{ background: "var(--amber-l)", border: "1px solid var(--amber-m)", borderRadius: 8, padding: "10px 16px", marginBottom: 16, fontSize: 13, color: "var(--amber-m)", display: "flex", alignItems: "center", gap: 8 }}>
+          <span>⏳</span>
+          <span>Publishing updates in progress — generating notes with AI…</span>
+        </div>
+      )}
+
       {/* ── Step 7: Review & Publish ─────────────────────────────────────── */}
       <div style={{ border: "2px solid var(--navy-mid)", borderRadius: 10, overflow: "hidden" }}>
         <div style={{ background: "var(--navy-mid)", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1850,7 +1871,7 @@ function ManualFlow({ onBack }) {
           {/* Publish buttons */}
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <button className="btn btn-p" style={{ background: amberCount > 0 ? "var(--tx-q)" : "var(--navy-mid)", cursor: amberCount > 0 ? "not-allowed" : "pointer" }} disabled={publishing || amberCount > 0} onClick={handlePublish}>
-              {publishing ? "Publishing…" : `Publish All (${totalItems} items) →`}
+              {publishing ? "Publishing updates in progress…" : `Publish All (${totalItems} items) →`}
             </button>
             <button className="btn btn-o btn-sm">💾 Save Draft</button>
             <div style={{ fontSize: 11, color: "var(--tx-q)", marginLeft: 4 }}>Removes item from Step 3 → summary updates instantly · Previous contract archived to S3 on publish</div>
