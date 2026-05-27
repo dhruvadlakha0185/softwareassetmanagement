@@ -442,13 +442,6 @@ async def multi_publish(
             db.add(contract)
             await db.flush()
 
-            # ── Resolve metric by ID ──────────────────────────────────────
-            metric_name = None
-            if item.metric_id:
-                m = await db.get(LicenseMetric, item.metric_id)
-                if m:
-                    metric_name = m.name
-
             # ── Create Entitlement ────────────────────────────────────────
             max_ent = (await db.execute(
                 select(func.max(Entitlement.ent_id)).where(Entitlement.ent_id.like("ENT-%"))

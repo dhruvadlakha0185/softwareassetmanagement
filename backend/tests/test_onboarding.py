@@ -309,8 +309,10 @@ async def test_multi_publish_generates_notes_when_blank(client, admin_token, db)
 
 
 @pytest.mark.asyncio
-async def test_multi_publish_skips_generator_when_notes_present(client, admin_token):
-    """When the line item already has notes, the generator is NOT called."""
+async def test_multi_publish_skips_generator_when_notes_present(client, admin_token, db):
+    """When the line item already has notes, the generator is NOT called and existing notes persist."""
+    from sqlalchemy import select
+    from app.models.contracts import Entitlement
     from unittest.mock import AsyncMock, patch
 
     h = {"Authorization": f"Bearer {admin_token}"}
@@ -337,3 +339,8 @@ async def test_multi_publish_skips_generator_when_notes_present(client, admin_to
 
     assert resp.status_code == 201, resp.text
     mock_gen.assert_not_called()
+
+    ent_id = resp.json()["created"][0]["ent_id"]
+    result = await db.execute(select(Entitlement).where(Entitlement.ent_id == ent_id))
+    ent = result.scalar_one()
+    assert ent.notes == "Existing handwritten note."
