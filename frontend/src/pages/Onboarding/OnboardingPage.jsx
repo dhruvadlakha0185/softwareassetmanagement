@@ -1325,12 +1325,7 @@ function ManualFlow({ onBack }) {
   // Step 3: Line items
   const [lineItems, setLineItems] = useState([newItem(0)]);
 
-  // Step 4 (merged into line items) — Steps 5-6:
-  const [appOwnerId, setAppOwnerId] = useState("");
-  const [secondaryOwnerId, setSecondaryOwnerId] = useState("");
-  const [selectedDoaIds, setSelectedDoaIds] = useState([]);
-  const [discoverySourceId, setDiscoverySourceId] = useState("");
-  const [usageMethodId, setUsageMethodId] = useState("");
+  // Step 4 (merged into line items) — shared config toggle:
   const [shareOwnerConfig, setShareOwnerConfig] = useState(true);
 
   // Masters
@@ -1442,15 +1437,16 @@ function ManualFlow({ onBack }) {
     return [...ls, item];
   });
 
-  const isItemComplete = (l) =>
+  const isItemComplete = (l, idx) =>
     l.contractName && l.primarySwName && l.licenseTypeId && l.metricId &&
-    l.entitledCount && l.unitCost && l.businessUnits.length > 0 && l.regions.length > 0;
+    l.entitledCount && l.unitCost && l.businessUnits.length > 0 && l.regions.length > 0 &&
+    ((idx > 0 && shareOwnerConfig) || (l.appOwnerId && l.discoverySourceId && l.usageMethodId));
 
   // Summary stats
   const totalItems = lineItems.length;
   const existingCount = lineItems.filter(l => l.isExisting).length;
   const newCount = lineItems.filter(l => !l.isExisting && l.primarySwName).length;
-  const amberCount = lineItems.filter(l => !isItemComplete(l)).length;
+  const amberCount = lineItems.filter((l, idx) => !isItemComplete(l, idx)).length;
 
   const autoFillCount = extracted
     ? Object.values(meta).filter(Boolean).length
@@ -1465,7 +1461,7 @@ function ManualFlow({ onBack }) {
     try {
       const items = lineItems.filter(l => l.contractName && l.primarySwName);
       if (!items.length) { setPublishError("No valid line items to publish."); setPublishing(false); return; }
-      const incomplete = items.filter(l => !isItemComplete(l));
+      const incomplete = items.filter((l, idx) => !isItemComplete(l, idx));
       if (incomplete.length > 0) {
         const names = incomplete.map(l => `Item ${lineItems.indexOf(l) + 1}${l.contractName ? ` (${l.contractName})` : ""}`).join(", ");
         setPublishError(`Complete all mandatory fields (*) before publishing. Incomplete: ${names}.`);
@@ -1783,77 +1779,6 @@ function ManualFlow({ onBack }) {
         <span style={{ fontSize: 12, color: "var(--tx-m)" }}>ENT_IDs to generate: <strong>{totalItems}</strong></span>
         {amberCount > 0 && <span style={{ fontSize: 12, color: "var(--amber-m)", fontWeight: 600 }}>⚠ Items needing input: {amberCount} fields amber</span>}
         <button className="btn btn-o btn-sm" style={{ marginLeft: "auto" }} onClick={addItem}>+ Add Line Item</button>
-      </div>
-
-      {/* ── Steps 4 (merged above) → Steps 5 + 6 side by side ─────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
-          {/* Step 5: Owner & DOA */}
-          <div style={{ border: "1px solid var(--bdr)", borderRadius: 10, flex: 1 }}>
-            <div style={{ background: "var(--surf)", padding: "12px 16px", borderBottom: "1px solid var(--bdr)", borderRadius: "10px 10px 0 0" }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>Step 4 — Owner &amp; DOA Escalation</div>
-              <div style={{ fontSize: 11, color: "var(--tx-q)", marginTop: 2 }}>Applies to all line items unless individually overridden</div>
-            </div>
-            <div style={{ padding: 16 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                <div>
-                  <SearchableSelect
-                    label={<>Primary App Owner <span style={{ color: "var(--red-m)" }}>*</span></>}
-                    value={appOwnerId}
-                    onChange={setAppOwnerId}
-                    options={owners.filter(o => o.is_active).map(o => ({ id: o.id, name: `${o.full_name}${o.bu ? ` (${o.bu})` : ""}` }))}
-                    placeholder="Select from masters…"
-                  />
-                  <div style={{ fontSize: 10, color: "var(--tx-q)", marginTop: 3 }}>Populated from App Owner Master</div>
-                </div>
-                <div>
-                  <SearchableSelect
-                    label="Secondary Owner"
-                    value={secondaryOwnerId}
-                    onChange={setSecondaryOwnerId}
-                    options={owners.filter(o => o.is_active && o.id !== appOwnerId).map(o => ({ id: o.id, name: o.full_name }))}
-                    placeholder="Select from masters…"
-                  />
-                </div>
-              </div>
-              <DOAPickerField
-                contacts={doaContacts}
-                selectedIds={selectedDoaIds}
-                onChange={setSelectedDoaIds}
-              />
-            </div>
-          </div>
-
-          {/* Step 6: Source & Usage Config */}
-          <div style={{ border: "1px solid var(--bdr)", borderRadius: 10 }}>
-            <div style={{ background: "var(--surf)", padding: "12px 16px", borderBottom: "1px solid var(--bdr)", borderRadius: "10px 10px 0 0" }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>Step 5 — Source &amp; Usage Config</div>
-              <div style={{ fontSize: 11, color: "var(--tx-q)", marginTop: 2 }}>Applies to all line items from this contract</div>
-            </div>
-            <div style={{ padding: 16 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>
-                  <SearchableSelect
-                    label={<>Discovery Source <span style={{ color: "var(--red-m)" }}>*</span></>}
-                    value={discoverySourceId}
-                    onChange={setDiscoverySourceId}
-                    options={sources}
-                    placeholder="Select source…"
-                  />
-                  <div style={{ fontSize: 10, color: "var(--tx-q)", marginTop: 3 }}>From Masters → Discovery Sources</div>
-                </div>
-                <div>
-                  <SearchableSelect
-                    label={<>Usage Update Method <span style={{ color: "var(--red-m)" }}>*</span></>}
-                    value={usageMethodId}
-                    onChange={setUsageMethodId}
-                    options={methods}
-                    placeholder="Select method…"
-                  />
-                  <div style={{ fontSize: 10, color: "var(--tx-q)", marginTop: 3 }}>From Masters → Usage Update Methods</div>
-                </div>
-              </div>
-            </div>
-          </div>
       </div>
 
       {/* ── Step 7: Review & Publish ─────────────────────────────────────── */}
