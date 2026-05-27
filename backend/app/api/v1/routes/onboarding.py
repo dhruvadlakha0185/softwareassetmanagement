@@ -326,7 +326,7 @@ async def multi_publish(
         raise HTTPException(status_code=400, detail="No line items provided")
 
     # ── Batch-resolve lookup names for AI notes context ───────────────────
-    from app.models.masters import Category, SubCategory, LicenseMetric, LicenseType
+    from app.models.masters import Category, SubCategory, LicenseMetric, LicenseType, Region
 
     _cat_ids = {i.category_id for i in body.line_items if i.category_id}
     _sub_ids = {i.sub_category_id for i in body.line_items if i.sub_category_id}
@@ -350,6 +350,10 @@ async def multi_publish(
     if _lt_ids:
         rows = (await db.execute(select(LicenseType).where(LicenseType.id.in_(_lt_ids)))).scalars().all()
         lt_names = {r.id: r.license_type for r in rows}
+
+    # Region name → UUID map (used to set region_id FK from free-text region list)
+    all_regions = (await db.execute(select(Region))).scalars().all()
+    region_name_to_id: dict = {r.name: r.id for r in all_regions}
 
     created: list[MultiPublishCreated] = []
     skipped: list[str] = []
@@ -401,6 +405,9 @@ async def multi_publish(
                 else:
                     publisher = item.publisher or body.vendor_name
                     sw_id = await _next_sw_id(db, publisher)
+                    first_region_id = None
+                    if item.regions:
+                        first_region_id = region_name_to_id.get(item.regions[0])
                     sw_entry = SoftwareCatalog(
                         sw_id=sw_id,
                         primary_sw_name=item.primary_sw_name,
@@ -410,6 +417,7 @@ async def multi_publish(
                         gxp_flag=item.gxp_flag,
                         vendor_risk=item.vendor_risk,
                         deployment=item.deployment,
+                        region_id=first_region_id,
                         app_owner_id=item.app_owner_id,
                         secondary_owner_id=item.secondary_owner_id,
                         notes=notes,
@@ -460,6 +468,9 @@ async def multi_publish(
                     break
                 ent_n += 1
 
+            ent_region_id = None
+            if item.regions:
+                ent_region_id = region_name_to_id.get(item.regions[0])
             ent = Entitlement(
                 ent_id=ent_id,
                 sw_id=sw_id,
@@ -473,6 +484,7 @@ async def multi_publish(
                 annual_cost=item.annual_cost,
                 notes=notes,
                 vendor_id=contract.vendor_id,
+                region_id=ent_region_id,
                 regions_json=item.regions or None,
                 business_units=item.business_units or None,
                 discovery_source_id=item.discovery_source_id,
@@ -506,6 +518,10 @@ async def multi_publish(
                         annual_cost=sched.annual_cost,
                     ))
 
+            # Resolve final cost values (Year 1 schedule may have overridden item values)
+            final_count = ent.entitled_count
+            final_unit = ent.unit_cost
+            final_annual = ent.annual_cost
             created.append(MultiPublishCreated(
                 sw_id=sw_id,
                 ent_id=ent_id,
@@ -513,6 +529,11 @@ async def multi_publish(
                 primary_sw_name=item.primary_sw_name,
                 contract_name=item.contract_name,
                 is_new_sw=is_new_sw,
+                license_type_name=lt_names.get(item.license_type_id) if item.license_type_id else None,
+                metric_name=metric_names.get(item.metric_id) if item.metric_id else None,
+                entitled_count=final_count,
+                unit_cost=final_unit,
+                annual_cost=final_annual,
             ))
 
         except Exception as e:
@@ -627,6 +648,119 @@ def _parse_bulk_xlsx(data: bytes) -> list[dict]:
             continue  # skip rows missing required fields
         result.append(d)
     return result
+
+
+def _parse_bulk_two_tab(data: bytes) -> tuple[dict, list[dict]]:
+    """
+    Parse a two-tab bulk onboarding XLSX.
+    Tab 1 'Contract Information': row 1=headers, row 2=example, row 3=data.
+    Tab 2 'Contract Line Items': row 1=section labels, row 2=headers, row 3=example, row 4+=data.
+    Returns (contract_meta, line_items).
+    Raises ValueError if the expected sheets are not found.
+    """
+    from openpyxl import load_workbook
+    from datetime import datetime as _dt
+
+    wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    if "Contract Information" not in wb.sheetnames:
+        raise ValueError(
+            "Sheet 'Contract Information' not found — please download the latest template"
+        )
+    if "Contract Line Items" not in wb.sheetnames:
+        raise ValueError(
+            "Sheet 'Contract Line Items' not found — please download the latest template"
+        )
+
+    # ── Tab 1: contract meta from row 3 ──────────────────────────────────────
+    ws1 = wb["Contract Information"]
+    rows1 = list(ws1.iter_rows(min_row=3, max_row=3, values_only=True))
+    if not rows1 or not rows1[0]:
+        raise ValueError("Contract Information tab has no data in row 3")
+    r = rows1[0]
+
+    def _str(v) -> str | None:
+        return str(v).strip() if v is not None and str(v).strip() else None
+
+    def _date_str(v) -> str | None:
+        if v is None:
+            return None
+        if hasattr(v, "strftime"):
+            return v.strftime("%Y-%m-%d")
+        s = str(v).strip()
+        try:
+            _dt.strptime(s, "%Y-%m-%d")
+            return s
+        except ValueError:
+            return None
+
+    auto_renewal_raw = _str(r[6])
+    auto_renewal = auto_renewal_raw if auto_renewal_raw in ("yes", "no", "opt_in") else None
+    currency = _str(r[7]) or "INR"
+
+    contract_meta = {
+        "vendor_name": _str(r[0]),
+        "po_number": _str(r[1]),
+        "contract_name": _str(r[2]),
+        "start_date": _date_str(r[3]),
+        "end_date": _date_str(r[4]),
+        "clm_id": _str(r[5]),
+        "auto_renewal_clause": auto_renewal,
+        "currency": currency,
+    }
+
+    # ── Tab 2: line items from row 4 onward ───────────────────────────────────
+    ws2 = wb["Contract Line Items"]
+    all_rows = list(ws2.iter_rows(min_row=4, values_only=True))
+    line_items = []
+    for row in all_rows:
+        if not row or all(c is None or str(c).strip() == "" for c in row):
+            continue
+        primary_sw_name = _str(row[0])
+        if not primary_sw_name:
+            continue  # skip rows without software name
+
+        def _int(v) -> int | None:
+            try:
+                return int(v) if v is not None and str(v).strip() != "" else None
+            except (ValueError, TypeError):
+                return None
+
+        def _split(v) -> list[str]:
+            if not v or str(v).strip() == "":
+                return []
+            return [x.strip() for x in str(v).split(",") if x.strip()]
+
+        gxp_raw = _str(row[11]) or "no"
+        gxp_flag = gxp_raw if gxp_raw in ("no", "yes_21cfr", "yes_annex11", "yes_both") else "no"
+        risk_raw = (_str(row[12]) or "LOW").upper()
+        vendor_risk = risk_raw if risk_raw in ("LOW", "MEDIUM", "HIGH") else "LOW"
+        deploy_raw = _str(row[13]) or "cloud"
+        deployment = deploy_raw if deploy_raw in ("cloud", "on_premise", "desktop_cloud", "hybrid") else "cloud"
+
+        line_items.append({
+            "primary_sw_name": primary_sw_name,
+            "sw_id": _str(row[1]),
+            "license_type_name": _str(row[2]),
+            "metric_name": _str(row[3]),
+            "entitled_count": _int(row[4]),
+            "unit_cost": _int(row[5]),
+            "annual_cost": _int(row[6]),
+            "business_units": _split(row[7]),
+            "regions": _split(row[8]),
+            "category_name": _str(row[9]),
+            "sub_category_name": _str(row[10]),
+            "gxp_flag": gxp_flag,
+            "vendor_risk": vendor_risk,
+            "deployment": deployment,
+            "notes": _str(row[14]),
+            "app_owner_email": _str(row[15]),
+            "secondary_owner_email": _str(row[16]),
+            "doa_emails": _split(row[17]),
+            "discovery_source_name": _str(row[18]),
+            "usage_method_name": _str(row[19]),
+        })
+
+    return contract_meta, line_items
 
 
 @router.get("/bulk-template")

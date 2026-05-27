@@ -1,6 +1,7 @@
 import io
 import pytest
 from unittest.mock import AsyncMock, patch
+from openpyxl import Workbook
 from app.models.contracts import EntitlementDoaContact
 from app.schemas.onboarding import MultiLineItemIn, MultiPublishPayload
 
@@ -344,3 +345,118 @@ async def test_multi_publish_skips_generator_when_notes_present(client, admin_to
     result = await db.execute(select(Entitlement).where(Entitlement.ent_id == ent_id))
     ent = result.scalar_one()
     assert ent.notes == "Existing handwritten note."
+
+
+def _make_two_tab_xlsx(
+    meta_row=None,
+    item_rows=None,
+) -> bytes:
+    """Helper: build a minimal valid two-tab XLSX for parser tests."""
+    wb = Workbook()
+    ws1 = wb.active
+    ws1.title = "Contract Information"
+    # Row 1: headers (parser reads row 3 for data)
+    ws1.append(["Vendor / Publisher Name *", "PO Number *", "Contract Name *",
+                "Contract Start Date *", "Contract End Date *", "CLM ID",
+                "Auto-Renewal Clause", "Currency"])
+    # Row 2: example
+    ws1.append(["Example Corp", "PO-EX-001", "Example Contract", "2026-01-01", "2027-01-01", "", "yes", "INR"])
+    # Row 3: data
+    row = meta_row or ["TechVendor", "PO-2026-001", "TV Contract FY26",
+                       "2026-04-01", "2027-03-31", "CLM-001", "yes", "USD"]
+    ws1.append(row)
+
+    ws2 = wb.create_sheet("Contract Line Items")
+    # Row 1: section labels
+    ws2.append(["Step 3"] + [""] * 14 + ["Step 4"] + [""] * 2 + ["Step 5"] + [""])
+    # Row 2: headers
+    ws2.append(["Software Name *", "SW_ID", "License Type *", "Metric *",
+                "Entitled Count *", "Unit Cost *", "Annual Cost",
+                "Business Unit(s) *", "Region(s) *", "Category", "Sub-Category",
+                "GxP Flag", "Vendor Audit Risk", "Deployment", "Notes",
+                "App Owner Email", "Secondary Owner Email", "DOA Contact Email(s)",
+                "Discovery Source", "Usage Update Method"])
+    # Row 3: example
+    ws2.append(["ExSW", "", "subscription", "Per User", 100, 5000, 500000,
+                "IT", "Global", "ERP & Supply Chain", "ERP", "no", "LOW", "cloud", "Example notes",
+                "ex@drl.com", "", "", "SCCM (Microsoft MECM)", "Monthly Template Upload (XLSX)"])
+    # Row 4+: data
+    for row in (item_rows or [
+        ["My Software", "SW-001", "subscription", "Per User",
+         250, 8000, None,
+         "IT, Finance", "GG India, EUG", "Enterprise Productivity", "Low-Code",
+         "yes_21cfr", "MEDIUM", "cloud", "Core tool",
+         "owner@drl.com", "", "doa@drl.com",
+         "ServiceNow CMDB", "Quarterly Manual Update"]
+    ]):
+        ws2.append(row)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_parse_two_tab_contract_meta():
+    from app.api.v1.routes.onboarding import _parse_bulk_two_tab
+    meta, _ = _parse_bulk_two_tab(_make_two_tab_xlsx())
+    assert meta["vendor_name"] == "TechVendor"
+    assert meta["po_number"] == "PO-2026-001"
+    assert meta["contract_name"] == "TV Contract FY26"
+    assert meta["start_date"] == "2026-04-01"
+    assert meta["end_date"] == "2027-03-31"
+    assert meta["clm_id"] == "CLM-001"
+    assert meta["auto_renewal_clause"] == "yes"
+    assert meta["currency"] == "USD"
+
+
+def test_parse_two_tab_line_items():
+    from app.api.v1.routes.onboarding import _parse_bulk_two_tab
+    _, items = _parse_bulk_two_tab(_make_two_tab_xlsx())
+    assert len(items) == 1
+    item = items[0]
+    assert item["primary_sw_name"] == "My Software"
+    assert item["sw_id"] == "SW-001"
+    assert item["license_type_name"] == "subscription"
+    assert item["metric_name"] == "Per User"
+    assert item["entitled_count"] == 250
+    assert item["unit_cost"] == 8000
+    assert item["annual_cost"] is None  # blank → None (auto-calc done later)
+    assert item["business_units"] == ["IT", "Finance"]
+    assert item["regions"] == ["GG India", "EUG"]
+    assert item["category_name"] == "Enterprise Productivity"
+    assert item["sub_category_name"] == "Low-Code"
+    assert item["gxp_flag"] == "yes_21cfr"
+    assert item["vendor_risk"] == "MEDIUM"
+    assert item["deployment"] == "cloud"
+    assert item["notes"] == "Core tool"
+    assert item["app_owner_email"] == "owner@drl.com"
+    assert item["secondary_owner_email"] is None
+    assert item["doa_emails"] == ["doa@drl.com"]
+    assert item["discovery_source_name"] == "ServiceNow CMDB"
+    assert item["usage_method_name"] == "Quarterly Manual Update"
+
+
+def test_parse_two_tab_skips_blank_rows():
+    from app.api.v1.routes.onboarding import _parse_bulk_two_tab
+    xlsx = _make_two_tab_xlsx(item_rows=[
+        ["Real Software", "", "subscription", "Per User", 10, 1000, None, "IT", "Global",
+         "", "", "no", "LOW", "cloud", "", "", "", "", "", ""],
+        [None, None, None, None, None, None, None, None, None,
+         None, None, None, None, None, None, None, None, None, None, None],
+    ])
+    _, items = _parse_bulk_two_tab(xlsx)
+    assert len(items) == 1
+    assert items[0]["primary_sw_name"] == "Real Software"
+
+
+def test_parse_two_tab_old_format_raises():
+    from app.api.v1.routes.onboarding import _parse_bulk_two_tab
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Bulk Onboarding"  # old single-sheet format
+    ws.append(["Software Name *", "Contract Name *"])
+    ws.append(["SAP ERP", "SAP FY26"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    with pytest.raises(ValueError, match="Contract Information"):
+        _parse_bulk_two_tab(buf.getvalue())
