@@ -1461,7 +1461,7 @@ function ManualFlow({ onBack }) {
     try {
       const items = lineItems.filter(l => l.contractName && l.primarySwName);
       if (!items.length) { setPublishError("No valid line items to publish."); setPublishing(false); return; }
-      const incomplete = items.filter((l, idx) => !isItemComplete(l, idx));
+      const incomplete = items.filter(l => !isItemComplete(l, lineItems.indexOf(l)));
       if (incomplete.length > 0) {
         const names = incomplete.map(l => `Item ${lineItems.indexOf(l) + 1}${l.contractName ? ` (${l.contractName})` : ""}`).join(", ");
         setPublishError(`Complete all mandatory fields (*) before publishing. Incomplete: ${names}.`);
