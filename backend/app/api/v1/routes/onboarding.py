@@ -945,7 +945,7 @@ async def bulk_onboard(
                 "unit_cost": li["unit_cost"],
                 "annual_cost": li["annual_cost"] if li["annual_cost"] is not None else (
                     (li["entitled_count"] * li["unit_cost"])
-                    if li["entitled_count"] and li["unit_cost"] else None
+                    if li["entitled_count"] is not None and li["unit_cost"] is not None else None
                 ),
                 "business_units": li["business_units"],
                 "regions": li["regions"],
