@@ -216,26 +216,74 @@ Multi-value fields (business_units, regions, doa_emails) are split on comma and 
 
 ---
 
-## Backend: bulk_onboard Endpoint Refactor
+## Backend: bulk_onboard Endpoint — Parse and Return
 
-Current flow: `_parse_bulk_xlsx` → manual catalog/entitlement creation  
-New flow: `_parse_bulk_two_tab` → name-to-UUID resolution → build `MultiPublishRequest` → call `multi_publish(body, db)` directly
+`POST /bulk` is **no longer a publish action**. It parses the uploaded XLSX and returns structured data in the same shape as the AI extraction response (`POST /extract`). Publishing is always done via the regular `POST /multi-publish` after the user reviews in the form.
 
-**Name-to-UUID resolution** (done inside the endpoint before calling multi_publish):
-- `license_type_name` → `license_types.id` via `SELECT id FROM license_types WHERE license_type = $1`
-- `metric_name` → `license_metrics.id`
-- `category_name` → `categories.id`
-- `sub_category_name` → `sub_categories.id`
-- `app_owner_email` → `users.id` WHERE `email = $1`
-- `secondary_owner_email` → `users.id`
-- `doa_emails` → `doa_hierarchy.id` list WHERE `email IN (...)`
-- `discovery_source_name` → `discovery_sources.id`
-- `usage_method_name` → `usage_update_methods.id`
-- Regions remain as strings (multi_publish already resolves region names to UUIDs internally)
+**Old flow:** upload → parse → publish → return result  
+**New flow:** upload → parse → return extracted data → user reviews in form → user publishes
 
-If a name cannot be resolved, the row is added to a `skipped` list with reason — same pattern as multi_publish's existing skip logic.
+### Response schema
 
-**Response:** same `MultiPublishResult` schema as multi_publish — `{created: [...], skipped: [...]}`.
+```python
+{
+  "vendor_name": str | None,
+  "po_number": str | None,
+  "contract_name": str | None,
+  "start_date": str | None,        # ISO date string "YYYY-MM-DD"
+  "end_date": str | None,
+  "clm_id": str | None,
+  "auto_renewal_clause": str | None,
+  "currency": str,                  # default "INR"
+  "line_items": [
+    {
+      "contract_name": str | None,  # copied from contract_meta.contract_name
+      "primary_sw_name": str,
+      "sw_id": str | None,
+      "license_type": str | None,   # name string (frontend resolves to ID, same as AI extraction)
+      "metric_name": str | None,    # name string (frontend resolves to ID)
+      "entitled_count": int | None,
+      "unit_cost": int | None,
+      "annual_cost": int | None,
+      "business_units": list[str],
+      "regions": list[str],
+      "category_name": str | None,  # name string (frontend resolves to ID)
+      "sub_category_name": str | None,
+      "gxp_flag": str,
+      "vendor_risk": str,
+      "deployment": str,
+      "notes": str | None,
+      "app_owner_email": str | None,
+      "secondary_owner_email": str | None,
+      "doa_emails": list[str],
+      "discovery_source_name": str | None,
+      "usage_method_name": str | None,
+    }
+  ]
+}
+```
+
+No DB writes happen in this endpoint. All name fields (license_type, metric, category, etc.) are returned as plain strings — the frontend already has this resolution logic from the AI extraction flow.
+
+---
+
+## Frontend: Bulk Upload Populates the Onboarding Form
+
+The existing `useEffect` that maps `extracted` → form state (meta + line items) is extended to also handle the richer bulk-upload response. When `POST /bulk` succeeds, its response is set as `extracted` — the same state variable the AI extraction result populates — so the existing mapping logic runs unchanged.
+
+**Additional fields resolved by the frontend** (same as AI extraction flow):
+- `license_type` name → `licenseTypeId` UUID via match against loaded `licenseTypes`
+- `metric_name` → `metricId` UUID via match against loaded `metrics`
+- `category_name` → `categoryId` UUID via match against loaded `categories`
+- `sub_category_name` → `subCategoryId` UUID via match against loaded `subCategories`
+
+**New fields resolved by the frontend** (not in AI extraction, added here):
+- `app_owner_email` → `appOwnerId` UUID via match against loaded `owners`
+- `discovery_source_name` → `discoverySourceId` UUID via match against loaded `sources`
+- `usage_method_name` → `usageMethodId` UUID via match against loaded `methods`
+- `business_units` and `regions` are already string arrays — set directly
+
+After population the user sees all extracted line items in the review form, can edit any field, then clicks Publish.
 
 ---
 
