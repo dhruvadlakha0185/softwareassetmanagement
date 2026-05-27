@@ -552,53 +552,203 @@ async def multi_publish(
 
 # ── Bulk Onboarding ───────────────────────────────────────────────────────────
 
-def _generate_bulk_template() -> bytes:
-    """Blank XLSX template for bulk software onboarding."""
+def _generate_bulk_template(db_lists: dict) -> bytes:
+    """
+    Build a two-tab XLSX bulk onboarding template.
+    db_lists keys: license_types, metrics, regions, categories,
+                   sub_categories, discovery_sources, usage_methods
+                   (each a list[str] fetched from DB at request time)
+    """
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    _MANDATORY_FILL = PatternFill("solid", fgColor="C0392B")  # dark red
+    _OPTIONAL_FILL  = PatternFill("solid", fgColor="1A2E5A")  # DRL navy
+    _SECTION_FILL   = PatternFill("solid", fgColor="2C3E50")  # dark slate
+    _WHITE_BOLD     = Font(color="FFFFFF", bold=True, size=10)
+    _SECTION_FONT   = Font(color="FFFFFF", bold=True, size=9, italic=True)
+    _EXAMPLE_FONT   = Font(italic=True, color="888888", size=9)
+    _CENTER         = Alignment(horizontal="center")
+
+    BIZ_UNITS = [
+        "All departments", "Finance", "Commercial", "Management", "SCM",
+        "Manufacturing", "QA/QC", "Regulatory", "R&D", "QC Labs",
+        "Analytical Dev", "Engineering", "Regulatory Affairs", "Drug Safety",
+        "Marketing", "Medical", "IT", "IT Security", "SOC",
+        "Procurement", "HR", "Training",
+    ]
 
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Bulk Onboarding"
 
-    headers = [
-        "Software Name *",          "SW_ID (leave blank=new)",
-        "Publisher",                 "Category",
-        "Sub-Category",              "Region",
-        "Deployment",                "GxP Relevant (yes/no)",
-        "Vendor Risk (LOW/MEDIUM/HIGH)", "Notes",
-        "Contract Name *",           "PO Number",
-        "CLM ID",                    "Start Date (YYYY-MM-DD)",
-        "End Date (YYYY-MM-DD)",     "Total Value (INR)",
-        "Auto-Renewal (yes/no/opt_in)", "License Type (subscription/perpetual)",
-        "Metric",                    "Entitled Count",
-        "Unit Cost (INR)",           "Annual Cost (INR)",
+    # ── _Lists hidden sheet ───────────────────────────────────────────────────
+    ws_lists = wb.active
+    ws_lists.title = "_Lists"
+    lists_data = [
+        ("LicenseTypes",    db_lists.get("license_types", [])),
+        ("Metrics",         db_lists.get("metrics", [])),
+        ("BusinessUnits",   BIZ_UNITS),
+        ("Regions",         db_lists.get("regions", [])),
+        ("Categories",      db_lists.get("categories", [])),
+        ("SubCategories",   db_lists.get("sub_categories", [])),
+        ("DiscoverySources",db_lists.get("discovery_sources", [])),
+        ("UsageMethods",    db_lists.get("usage_methods", [])),
     ]
+    for col_idx, (header, values) in enumerate(lists_data, 1):
+        ws_lists.cell(row=1, column=col_idx, value=header)
+        for row_idx, val in enumerate(values, 2):
+            ws_lists.cell(row=row_idx, column=col_idx, value=val)
+    ws_lists.sheet_state = "hidden"
 
-    navy_fill = PatternFill("solid", fgColor="1A2E5A")
-    navy_font = Font(color="FFFFFF", bold=True, size=10)
-    req_fill  = PatternFill("solid", fgColor="2E4A7A")  # slightly lighter for * cols
+    # ── Tab 1: Contract Information ───────────────────────────────────────────
+    ws1 = wb.create_sheet("Contract Information")
 
-    ws.append(headers)
-    for col_idx, header in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col_idx)
-        cell.fill = req_fill if "*" in header else navy_fill
-        cell.font = navy_font
-        cell.alignment = Alignment(horizontal="center")
-        ws.column_dimensions[cell.column_letter].width = max(len(header) + 4, 18)
-
-    # Example row
-    example = [
-        "SAP Concur Travel", "", "SAP SE", "Finance & Operations",
-        "Travel Management", "India",
-        "cloud", "no", "MEDIUM", "Travel expense management",
-        "SAP Concur FY26", "PO-2026-100", "CLM-2026-001",
-        "2026-04-01", "2027-03-31", "2500000",
-        "yes", "subscription", "Per User", "250", "8000", "2000000",
+    HEADERS_1 = [
+        ("Vendor / Publisher Name *", True),
+        ("PO Number *",               True),
+        ("Contract Name *",           True),
+        ("Contract Start Date *",     True),
+        ("Contract End Date *",       True),
+        ("CLM ID",                    False),
+        ("Auto-Renewal Clause",       False),
+        ("Currency",                  False),
     ]
-    ws.append(example)
-    for col_idx in range(1, len(example) + 1):
-        ws.cell(row=2, column=col_idx).font = Font(italic=True, color="888888", size=9)
+    for col_idx, (header, mandatory) in enumerate(HEADERS_1, 1):
+        cell = ws1.cell(row=1, column=col_idx, value=header)
+        cell.fill = _MANDATORY_FILL if mandatory else _OPTIONAL_FILL
+        cell.font = _WHITE_BOLD
+        cell.alignment = _CENTER
+        ws1.column_dimensions[cell.column_letter].width = max(len(header) + 4, 18)
+    ws1.row_dimensions[1].height = 22
+
+    EXAMPLE_1 = [
+        "TechCorp Systems", "PO-2026-001", "TechCorp Enterprise Suite FY26",
+        "2026-04-01", "2027-03-31", "CLM-2026-001", "yes", "INR",
+    ]
+    ws1.append(EXAMPLE_1)
+    for col_idx in range(1, len(EXAMPLE_1) + 1):
+        ws1.cell(row=2, column=col_idx).font = _EXAMPLE_FONT
+    ws1.row_dimensions[2].height = 18
+
+    # Validations on row 3 (data row)
+    dv_auto = DataValidation(type="list", formula1='"yes,no,opt_in"', allow_blank=True)
+    dv_auto.sqref = "G3"
+    ws1.add_data_validation(dv_auto)
+
+    dv_currency = DataValidation(
+        type="list",
+        formula1='"INR,USD,EUR,GBP,JPY,CHF,AUD,CAD,SGD,AED"',
+        allow_blank=True,
+    )
+    dv_currency.sqref = "H3"
+    ws1.add_data_validation(dv_currency)
+
+    dv_start = DataValidation(type="date", operator="greaterThan", formula1="DATE(2000,1,1)", allow_blank=True)
+    dv_start.sqref = "D3"
+    ws1.add_data_validation(dv_start)
+    dv_end = DataValidation(type="date", operator="greaterThan", formula1="DATE(2000,1,1)", allow_blank=True)
+    dv_end.sqref = "E3"
+    ws1.add_data_validation(dv_end)
+
+    # ── Tab 2: Contract Line Items ────────────────────────────────────────────
+    ws2 = wb.create_sheet("Contract Line Items")
+
+    # Row 1: section labels (merged bands)
+    sections = [
+        ("Step 3 — Software & Licensing", "A", "O"),
+        ("Step 4 — Owner & DOA",          "P", "R"),
+        ("Step 5 — Source & Usage Config","S", "T"),
+    ]
+    for label, col_from, col_to in sections:
+        ws2.merge_cells(f"{col_from}1:{col_to}1")
+        cell = ws2[f"{col_from}1"]
+        cell.value = label
+        cell.fill = _SECTION_FILL
+        cell.font = _SECTION_FONT
+        cell.alignment = _CENTER
+    ws2.row_dimensions[1].height = 16
+
+    # Row 2: column headers
+    HEADERS_2 = [
+        ("Software Name *",           True),   # A
+        ("SW_ID",                     False),  # B
+        ("License Type *",            True),   # C
+        ("Metric *",                  True),   # D
+        ("Entitled Count *",          True),   # E
+        ("Unit Cost *",               True),   # F
+        ("Annual Cost",               False),  # G
+        ("Business Unit(s) *",        True),   # H
+        ("Region(s) *",               True),   # I
+        ("Category",                  False),  # J
+        ("Sub-Category",              False),  # K
+        ("GxP Flag",                  False),  # L
+        ("Vendor Audit Risk",         False),  # M
+        ("Deployment",                False),  # N
+        ("Notes",                     False),  # O
+        ("App Owner Email",           False),  # P
+        ("Secondary Owner Email",     False),  # Q
+        ("DOA Contact Email(s)",      False),  # R
+        ("Discovery Source",          False),  # S
+        ("Usage Update Method",       False),  # T
+    ]
+    for col_idx, (header, mandatory) in enumerate(HEADERS_2, 1):
+        cell = ws2.cell(row=2, column=col_idx, value=header)
+        cell.fill = _MANDATORY_FILL if mandatory else _OPTIONAL_FILL
+        cell.font = _WHITE_BOLD
+        cell.alignment = _CENTER
+        width = max(len(header) + 4, 14)
+        if header in ("Notes", "App Owner Email", "Secondary Owner Email", "DOA Contact Email(s)"):
+            width = max(width, 30)
+        ws2.column_dimensions[cell.column_letter].width = width
+    ws2.row_dimensions[2].height = 22
+
+    # Row 3: example
+    EXAMPLE_2 = [
+        "TechCorp ERP", "", "subscription", "Per User", 500, 8000, 4000000,
+        "IT", "GG India", "ERP & Supply Chain", "ERP", "yes_21cfr", "MEDIUM", "cloud",
+        "Core ERP module", "owner@drl.com", "", "", "SCCM (Microsoft MECM)",
+        "Monthly Template Upload (XLSX)",
+    ]
+    ws2.append(EXAMPLE_2)
+    for col_idx in range(1, len(EXAMPLE_2) + 1):
+        ws2.cell(row=3, column=col_idx).font = _EXAMPLE_FONT
+    ws2.row_dimensions[3].height = 18
+
+    # Data validation on rows 4:1000
+    def _list_dv(formula, col_letter):
+        dv = DataValidation(type="list", formula1=formula, allow_blank=True,
+                            showErrorMessage=True, errorTitle="Invalid",
+                            error="Select a value from the dropdown list")
+        dv.sqref = f"{col_letter}4:{col_letter}1000"
+        return dv
+
+    ws2.add_data_validation(_list_dv("'_Lists'!$A$2:$A$100", "C"))  # License Type
+    ws2.add_data_validation(_list_dv("'_Lists'!$B$2:$B$100", "D"))  # Metric
+    ws2.add_data_validation(_list_dv("'_Lists'!$C$2:$C$100", "H"))  # Business Units
+    ws2.add_data_validation(_list_dv("'_Lists'!$D$2:$D$100", "I"))  # Regions
+    ws2.add_data_validation(_list_dv("'_Lists'!$E$2:$E$100", "J"))  # Categories
+    ws2.add_data_validation(_list_dv("'_Lists'!$F$2:$F$100", "K"))  # Sub-Categories
+    ws2.add_data_validation(_list_dv("'_Lists'!$G$2:$G$100", "S"))  # Discovery Sources
+    ws2.add_data_validation(_list_dv("'_Lists'!$H$2:$H$100", "T"))  # Usage Methods
+
+    ws2.add_data_validation(DataValidation(
+        type="list", formula1='"no,yes_21cfr,yes_annex11,yes_both"', allow_blank=True,
+        sqref="L4:L1000"
+    ))
+    ws2.add_data_validation(DataValidation(
+        type="list", formula1='"LOW,MEDIUM,HIGH"', allow_blank=True, sqref="M4:M1000"
+    ))
+    ws2.add_data_validation(DataValidation(
+        type="list", formula1='"cloud,on_premise,desktop_cloud,hybrid"', allow_blank=True,
+        sqref="N4:N1000"
+    ))
+
+    dv_int_e = DataValidation(type="whole", operator="greaterThanOrEqual", formula1="1", allow_blank=True)
+    dv_int_e.sqref = "E4:E1000"
+    ws2.add_data_validation(dv_int_e)
+    dv_int_f = DataValidation(type="whole", operator="greaterThanOrEqual", formula1="0", allow_blank=True)
+    dv_int_f.sqref = "F4:G1000"
+    ws2.add_data_validation(dv_int_f)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -764,8 +914,30 @@ def _parse_bulk_two_tab(data: bytes) -> tuple[dict, list[dict]]:
 
 
 @router.get("/bulk-template")
-async def download_bulk_template():
-    data = _generate_bulk_template()
+async def download_bulk_template(db: AsyncSession = Depends(get_db)):
+    from app.models.masters import LicenseType, LicenseMetric, Region, Category, SubCategory, DiscoverySource, UsageMethod
+
+    def _names(rows):
+        return [r.name for r in rows]
+
+    license_types = [r.license_type for r in (await db.execute(select(LicenseType))).scalars().all()]
+    metrics       = _names((await db.execute(select(LicenseMetric))).scalars().all())
+    regions       = _names((await db.execute(select(Region))).scalars().all())
+    categories    = _names((await db.execute(select(Category))).scalars().all())
+    sub_categories = _names((await db.execute(select(SubCategory))).scalars().all())
+    discovery_sources = _names((await db.execute(select(DiscoverySource))).scalars().all())
+    usage_methods = _names((await db.execute(select(UsageMethod))).scalars().all())
+
+    db_lists = {
+        "license_types": license_types,
+        "metrics": metrics,
+        "regions": regions,
+        "categories": categories,
+        "sub_categories": sub_categories,
+        "discovery_sources": discovery_sources,
+        "usage_methods": usage_methods,
+    }
+    data = _generate_bulk_template(db_lists)
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

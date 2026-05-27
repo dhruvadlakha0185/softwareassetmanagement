@@ -460,3 +460,97 @@ def test_parse_two_tab_old_format_raises():
     wb.save(buf)
     with pytest.raises(ValueError, match="Contract Information"):
         _parse_bulk_two_tab(buf.getvalue())
+
+
+def test_generate_template_has_correct_sheets():
+    from app.api.v1.routes.onboarding import _generate_bulk_template
+    from openpyxl import load_workbook
+    db_lists = {
+        "license_types": ["perpetual", "subscription"],
+        "metrics": ["Per User", "Per Core (2-pack)"],
+        "regions": ["GG India", "Global", "EUG"],
+        "categories": ["ERP & Supply Chain", "IT Security"],
+        "sub_categories": ["ERP", "EDR/XDR"],
+        "discovery_sources": ["SCCM (Microsoft MECM)", "ServiceNow CMDB"],
+        "usage_methods": ["Monthly Template Upload (XLSX)", "Quarterly Manual Update"],
+    }
+    data = _generate_bulk_template(db_lists)
+    wb = load_workbook(io.BytesIO(data))
+    assert "Contract Information" in wb.sheetnames
+    assert "Contract Line Items" in wb.sheetnames
+    assert "_Lists" in wb.sheetnames
+
+
+def test_generate_template_lists_sheet_is_hidden():
+    from app.api.v1.routes.onboarding import _generate_bulk_template
+    from openpyxl import load_workbook
+    db_lists = {
+        "license_types": ["subscription"],
+        "metrics": ["Per User"],
+        "regions": ["Global"],
+        "categories": ["IT Security"],
+        "sub_categories": ["Firewall"],
+        "discovery_sources": ["Manual / Procurement"],
+        "usage_methods": ["Quarterly Manual Update"],
+    }
+    data = _generate_bulk_template(db_lists)
+    wb = load_workbook(io.BytesIO(data))
+    assert wb["_Lists"].sheet_state == "hidden"
+
+
+def test_generate_template_lists_sheet_contains_db_values():
+    from app.api.v1.routes.onboarding import _generate_bulk_template
+    from openpyxl import load_workbook
+    db_lists = {
+        "license_types": ["perpetual", "subscription"],
+        "metrics": ["Per User"],
+        "regions": ["GG India", "Global"],
+        "categories": ["IT Security"],
+        "sub_categories": ["Firewall"],
+        "discovery_sources": ["ServiceNow CMDB"],
+        "usage_methods": ["Quarterly Manual Update"],
+    }
+    data = _generate_bulk_template(db_lists)
+    wb = load_workbook(io.BytesIO(data))
+    ws = wb["_Lists"]
+    # Col A = license_types (header row 1, values from row 2)
+    col_a = [ws.cell(row=r, column=1).value for r in range(2, 10) if ws.cell(row=r, column=1).value]
+    assert "perpetual" in col_a
+    assert "subscription" in col_a
+    # Col D = regions
+    col_d = [ws.cell(row=r, column=4).value for r in range(2, 10) if ws.cell(row=r, column=4).value]
+    assert "GG India" in col_d
+    assert "Global" in col_d
+
+
+def test_generate_template_contract_info_has_8_columns():
+    from app.api.v1.routes.onboarding import _generate_bulk_template
+    from openpyxl import load_workbook
+    db_lists = {
+        "license_types": [], "metrics": [], "regions": [],
+        "categories": [], "sub_categories": [], "discovery_sources": [], "usage_methods": [],
+    }
+    data = _generate_bulk_template(db_lists)
+    wb = load_workbook(io.BytesIO(data))
+    ws = wb["Contract Information"]
+    headers = [ws.cell(row=1, column=c).value for c in range(1, 9)]
+    assert headers[0] == "Vendor / Publisher Name *"
+    assert headers[1] == "PO Number *"
+    assert headers[2] == "Contract Name *"
+    assert headers[7] == "Currency"
+
+
+def test_generate_template_line_items_has_20_columns():
+    from app.api.v1.routes.onboarding import _generate_bulk_template
+    from openpyxl import load_workbook
+    db_lists = {
+        "license_types": [], "metrics": [], "regions": [],
+        "categories": [], "sub_categories": [], "discovery_sources": [], "usage_methods": [],
+    }
+    data = _generate_bulk_template(db_lists)
+    wb = load_workbook(io.BytesIO(data))
+    ws = wb["Contract Line Items"]
+    # Row 2 has column headers
+    headers = [ws.cell(row=2, column=c).value for c in range(1, 21)]
+    assert headers[0] == "Software Name *"
+    assert headers[19] == "Usage Update Method"
