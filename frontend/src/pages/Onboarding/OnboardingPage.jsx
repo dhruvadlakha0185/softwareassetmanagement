@@ -719,8 +719,8 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
           </div>
         )}
 
-        {/* Row 4a: Category | Sub-Category */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        {/* Row 4a: Category | Sub-Category | Vendor Audit Risk */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <SearchableSelect
             label={<>Category <span style={{ color: "var(--red-m)" }}>*</span></>}
             value={item.categoryId}
@@ -736,6 +736,16 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
             placeholder={item.categoryId ? "Select sub-category…" : "Select category first"}
             disabled={!item.categoryId}
           />
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>
+              Vendor Audit Risk
+            </label>
+            <select className="fi2" style={{ width: "100%" }} value={item.vendorRisk} onChange={e => onChange({ ...item, vendorRisk: e.target.value })}>
+              <option value="LOW">Low</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="HIGH">High</option>
+            </select>
+          </div>
         </div>
 
         {/* Row 4b: Business Units | Regions | Deployment | GxP */}
@@ -778,20 +788,6 @@ function LineItemCard({ item, idx, onChange, onRemove, catalogBrief, categories,
             placeholder="Describe the purpose of this software, primary users, departments…" />
         </div>
 
-        {/* New catalog entry — Vendor Risk only (Category/Sub-Category now always shown above) */}
-        {!item.isExisting && item.primarySwName && (
-          <div style={{ border: "1px solid var(--bdr)", borderRadius: 8, padding: 14, marginBottom: 14, background: "var(--surf)" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>New Catalog Entry — Metadata Required</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--tx-q)", display: "block", marginBottom: 4 }}>Vendor Audit Risk</label>
-                <select className="fi2" style={{ width: "100%" }} value={item.vendorRisk} onChange={e => onChange({ ...item, vendorRisk: e.target.value })}>
-                  <option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Aliases */}
         <div style={{ borderTop: "1px solid var(--bdr)", paddingTop: 12 }}>
@@ -1399,32 +1395,64 @@ function ManualFlow({ onBack }) {
       endDate: extracted.end_date || "",
       totalValue: extracted.total_value_inr ?? "",
       autoRenewal: extracted.auto_renewal_clause || "",
+      currency: extracted.currency || prev.currency || "INR",
     }));
     if (extracted.line_items?.length) {
       setLineItems(extracted.line_items.map((li, i) => {
+        const swNameToMatch = (li.primary_sw_name || li.contract_name || "").toLowerCase();
         const match = catalogBrief.find(c =>
-          (c.primary_sw_name || "").toLowerCase() === (li.contract_name || "").toLowerCase()
+          (c.primary_sw_name || "").toLowerCase() === swNameToMatch
         );
-        // Map license_type string from AI → UUID from licenseTypes table
+        // Map license_type string from AI/XLSX → UUID from licenseTypes table
         const ltMatch = licenseTypes.find(lt =>
           lt.license_type === (li.license_type || "").toLowerCase()
         );
+        const metricMatch = metrics.find(m =>
+          (m.name || "").toLowerCase() === (li.metric_name || "").toLowerCase()
+        );
+        const catMatch = categories.find(c =>
+          (c.name || "").toLowerCase() === (li.category_name || "").toLowerCase()
+        );
+        const subCatMatch = catMatch?.sub_categories?.find(s =>
+          (s.name || "").toLowerCase() === (li.sub_category_name || "").toLowerCase()
+        );
+        const ownerMatch = owners.find(o =>
+          (o.email || "").toLowerCase() === (li.app_owner_email || "").toLowerCase()
+        );
+        const srcMatch = sources.find(s =>
+          (s.name || "").toLowerCase() === (li.discovery_source_name || "").toLowerCase()
+        );
+        const methodMatch = methods.find(m =>
+          (m.name || "").toLowerCase() === (li.usage_method_name || "").toLowerCase()
+        );
         return {
           ...newItem(i),
-          contractName: li.contract_name || "",
-          primarySwName: match ? match.primary_sw_name : (li.contract_name || ""),
-          swId: match ? match.sw_id : "",
+          contractName: li.contract_name || extracted.contract_name || "",
+          primarySwName: match ? match.primary_sw_name : (li.primary_sw_name || li.contract_name || ""),
+          swId: li.sw_id || (match ? match.sw_id : ""),
           isExisting: !!match,
           isAiDetected: true,
           licenseTypeId: ltMatch ? ltMatch.id : "",
+          metricId: metricMatch ? metricMatch.id : "",
           entitledCount: li.entitled_count ?? "",
           unitCost: li.unit_cost ?? "",
           annualCost: li.annual_cost ?? "",
           aiEntitled: li.entitled_count || null,
+          gxpFlag: li.gxp_flag || "no",
+          vendorRisk: li.vendor_risk || "LOW",
+          deployment: li.deployment || "cloud",
+          notes: li.notes || "",
+          regions: li.regions || [],
+          businessUnits: li.business_units || [],
+          categoryId: catMatch ? catMatch.id : "",
+          subCategoryId: subCatMatch ? subCatMatch.id : "",
+          appOwnerId: ownerMatch ? ownerMatch.id : "",
+          discoverySourceId: srcMatch ? srcMatch.id : "",
+          usageMethodId: methodMatch ? methodMatch.id : "",
         };
       }));
     }
-  }, [extracted, catalogBrief, licenseTypes]);
+  }, [extracted, catalogBrief, licenseTypes, metrics, categories, owners, sources, methods]);
 
   const handleExtract = async () => {
     if (!file) return;
@@ -1467,6 +1495,7 @@ function ManualFlow({ onBack }) {
 
   const handlePublish = async () => {
     setDateError("");
+    if (!meta.poNumber?.trim()) { setDateError("PO Number is required."); return; }
     if (!meta.startDate) { setDateError("Contract Start Date is required."); return; }
     if (!meta.endDate)   { setDateError("Contract End Date is required."); return; }
     if (meta.startDate >= meta.endDate) { setDateError("Contract End Date must be after Start Date."); return; }
@@ -1551,35 +1580,81 @@ function ManualFlow({ onBack }) {
 
   // ── Success screen ─────────────────────────────────────────────────────────
   if (published) {
+    const fmtCost = (v) => v != null ? `₹${Number(v).toLocaleString("en-IN")}` : "—";
     return (
-      <div style={{ padding: "28px 32px" }}>
+      <div style={{ padding: "28px 32px", overflowY: "auto", height: "calc(100vh - 52px)" }}>
         <div style={{ fontSize: 11, color: "var(--tx-q)", marginBottom: 4 }}>
           <span style={{ cursor: "pointer", color: "var(--blue-m)" }} onClick={onBack}>Onboard Software</span> › Manual
         </div>
-        <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Onboarding Complete</h1>
-        <div style={{ border: "1px solid var(--bdr)", borderRadius: 10, padding: 28, maxWidth: 600 }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>✅</div>
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12, color: "var(--green-m)" }}>
-            {published.created.length} software entitlement{published.created.length !== 1 ? "s" : ""} created successfully
+        <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Onboarding Complete</h1>
+        <p style={{ fontSize: 12, color: "var(--tx-m)", marginBottom: 20 }}>
+          Entitlements are live in the catalog. Review details below.
+        </p>
+
+        {/* Summary stat row */}
+        <div style={{ display: "flex", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
+          {[
+            { label: "Entitlements Created", value: published.created.length, color: "var(--green-m)" },
+            { label: "New Catalog Entries", value: published.created.filter(c => c.is_new_sw).length, color: "var(--navy-mid)" },
+            { label: "Total Annual Cost", value: fmtCost(published.created.reduce((s, c) => s + (c.annual_cost || 0), 0)), color: "var(--tx-m)" },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{ border: "1px solid var(--bdr)", borderRadius: 8, padding: "12px 20px", minWidth: 160 }}>
+              <div style={{ fontSize: 11, color: "var(--tx-q)", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color }}>{value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Detail table */}
+        <div style={{ border: "1px solid var(--bdr)", borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+          <div style={{ background: "var(--surf)", padding: "10px 16px", borderBottom: "1px solid var(--bdr)", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 16 }}>✅</span>
+            <span style={{ fontWeight: 700, fontSize: 14, color: "var(--green-m)" }}>
+              {published.created.length} software entitlement{published.created.length !== 1 ? "s" : ""} created successfully
+            </span>
           </div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 16 }}>
-            <thead><tr style={{ background: "var(--surf)" }}>
-              <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, fontSize: 10, color: "var(--tx-q)", borderBottom: "2px solid var(--bdr)" }}>CONTRACT NAME</th>
-              <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, fontSize: 10, color: "var(--tx-q)", borderBottom: "2px solid var(--bdr)" }}>PRIMARY SW NAME</th>
-              <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, fontSize: 10, color: "var(--tx-q)", borderBottom: "2px solid var(--bdr)" }}>SW_ID</th>
-              <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, fontSize: 10, color: "var(--tx-q)", borderBottom: "2px solid var(--bdr)" }}>ENT_ID</th>
-            </tr></thead>
-            <tbody>{published.created.map((c, i) => (
-              <tr key={i} style={{ borderBottom: "1px solid var(--bdr)" }}>
-                <td style={{ padding: "7px 10px" }}>{c.contract_name}</td>
-                <td style={{ padding: "7px 10px", fontWeight: 600 }}>{c.primary_sw_name}</td>
-                <td style={{ padding: "7px 10px" }}><code style={{ fontSize: 11, background: "var(--bg2)", padding: "1px 5px", borderRadius: 3 }}>{c.sw_id}</code></td>
-                <td style={{ padding: "7px 10px" }}><code style={{ fontSize: 11, background: "var(--bg2)", padding: "1px 5px", borderRadius: 3 }}>{c.ent_id}</code></td>
-              </tr>
-            ))}</tbody>
-          </table>
-          {published.skipped?.length > 0 && <div style={{ background: "var(--amber-l)", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "var(--amber-m)", marginBottom: 12 }}>{published.skipped.length} items skipped: {published.skipped.join("; ")}</div>}
-          <button className="btn btn-p btn-sm" style={{ background: "var(--navy-mid)" }} onClick={onBack}>Onboard Another</button>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 900 }}>
+              <thead>
+                <tr style={{ background: "var(--surf)" }}>
+                  {["SW_ID", "ENT_ID", "Contract Software Name", "Primary SW Name", "License Type", "Metric", "Seats", "Unit Cost", "Annual Cost", "Status"].map(h => (
+                    <th key={h} style={{ padding: "7px 10px", textAlign: h === "Seats" || h === "Unit Cost" || h === "Annual Cost" ? "right" : "left", fontWeight: 700, fontSize: 10, color: "var(--tx-q)", borderBottom: "2px solid var(--bdr)", whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: 0.4 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {published.created.map((c, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid var(--bdr)", background: i % 2 === 0 ? "#fff" : "var(--surf)" }}>
+                    <td style={{ padding: "8px 10px" }}><code style={{ fontSize: 11, background: "var(--navy-xlt)", color: "var(--navy-mid)", padding: "2px 6px", borderRadius: 3, fontWeight: 700 }}>{c.sw_id}</code></td>
+                    <td style={{ padding: "8px 10px" }}><code style={{ fontSize: 11, background: "var(--bg2)", padding: "2px 6px", borderRadius: 3 }}>{c.ent_id}</code></td>
+                    <td style={{ padding: "8px 10px", color: "var(--tx-m)" }}>{c.contract_name}</td>
+                    <td style={{ padding: "8px 10px", fontWeight: 600 }}>{c.primary_sw_name}</td>
+                    <td style={{ padding: "8px 10px", color: "var(--tx-m)" }}>{c.license_type_name || "—"}</td>
+                    <td style={{ padding: "8px 10px", color: "var(--tx-m)" }}>{c.metric_name || "—"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600 }}>{c.entitled_count != null ? c.entitled_count.toLocaleString() : "—"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>{fmtCost(c.unit_cost)}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600, color: "var(--navy-mid)" }}>{fmtCost(c.annual_cost)}</td>
+                    <td style={{ padding: "8px 10px" }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: c.is_new_sw ? "var(--amber-l)" : "var(--green-l)", color: c.is_new_sw ? "var(--amber-m)" : "var(--green-m)" }}>
+                        {c.is_new_sw ? "New" : "Updated"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {published.skipped?.length > 0 && (
+          <div style={{ background: "var(--amber-l)", border: "1px solid var(--amber-m)", borderRadius: 6, padding: "10px 14px", fontSize: 12, color: "var(--amber-m)", marginBottom: 16 }}>
+            ⚠ {published.skipped.length} item{published.skipped.length !== 1 ? "s" : ""} skipped: {published.skipped.join("; ")}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="btn btn-p" style={{ background: "var(--navy-mid)" }} onClick={onBack}>Onboard Another</button>
+          <button className="btn btn-o" onClick={() => window.location.href = "/catalog"}>View Software Catalog →</button>
         </div>
       </div>
     );
@@ -1588,6 +1663,40 @@ function ManualFlow({ onBack }) {
   // ── Main form ──────────────────────────────────────────────────────────────
   return (
     <div style={{ padding: "18px 28px 40px", overflowY: "auto", height: "calc(100vh - 52px)" }}>
+
+      {/* ── AI Extraction overlay ─────────────────────────────────────────── */}
+      {extracting && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1000,
+          background: "rgba(15,23,42,0.72)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{
+            background: "#fff", borderRadius: 14, padding: "36px 48px",
+            textAlign: "center", boxShadow: "0 16px 48px rgba(0,0,0,0.28)",
+            minWidth: 340,
+          }}>
+            <div style={{ fontSize: 38, marginBottom: 14 }}>🤖</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "var(--navy-mid)", marginBottom: 8 }}>
+              AI Extraction in Progress
+            </div>
+            <div style={{ fontSize: 13, color: "var(--tx-m)", marginBottom: 6 }}>
+              Extracting vendor, PO, dates and line items from contract…
+            </div>
+            <div style={{ fontSize: 12, color: "var(--tx-q)", fontWeight: 500 }}>Please Wait</div>
+            <div style={{ marginTop: 18, display: "flex", justifyContent: "center", gap: 6 }}>
+              {[0, 1, 2].map(i => (
+                <div key={i} style={{
+                  width: 8, height: 8, borderRadius: "50%",
+                  background: "var(--navy-mid)",
+                  animation: `bounce 1.2s ${i * 0.2}s ease-in-out infinite`,
+                  opacity: 0.7,
+                }} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 11, color: "var(--tx-q)", marginBottom: 3 }}>
